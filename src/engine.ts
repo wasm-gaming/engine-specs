@@ -1,0 +1,61 @@
+// Layer B — the imperative contract.
+//
+// Every engine subproject's SDK exposes `{ manifest, load }` (an `EngineSDK`).
+// `load()` boots the engine and returns an `EngineInstance` the host controls.
+// The interface is identical across engines; per-engine differences are absorbed
+// by `manifest` (Layer A) and the `assets`/`options` payloads.
+
+import type { EngineManifest, KeyMap, InputPreset } from './manifest.js';
+
+/** Binary asset payload accepted by `load()`. */
+export type AssetData = Uint8Array | ArrayBuffer | string;
+
+/** Where an engine may persist saves/SRAM. */
+export type PersistMode = 'idbfs' | 'opfs' | null;
+
+export interface EngineConfig {
+  /** Render target. The SDK is responsible for the `#canvas` id if the engine needs it. */
+  canvas: HTMLCanvasElement;
+  /** Runtime files keyed by `AssetSpec.key`. Required specs must be present. */
+  assets: Record<string, AssetData>;
+  /** Engine-specific settings, validated against `manifest.options`. */
+  options?: Record<string, unknown>;
+  /** Persistence backend for saves, when the engine supports it. */
+  persist?: PersistMode;
+  /** Lifecycle/telemetry sink. Handlers must not throw. */
+  onEvent?: (e: EngineEvent) => void;
+  /** Override artifact locations (e.g. host-fetched Release assets). */
+  jsUrl?: string;
+  wasmUrl?: string;
+}
+
+export type EngineEvent =
+  | { type: 'ready' }
+  | { type: 'error'; error: Error }
+  | { type: 'exit' }
+  | { type: 'frame'; fps: number };
+
+export interface EngineInstance {
+  /** Begin running. `load()` may auto-start; then this is a no-op. */
+  start(): void;
+  pause(): void;
+  resume(): void;
+  /** Reset to power-on. May throw if the engine cannot reset in-process. */
+  reset(): void;
+  /** Swap the active input preset/map at runtime. */
+  setInput(map: InputPreset | KeyMap): void;
+
+  // Capability-gated (see manifest.capabilities). Present only when supported.
+  saveState?(): Promise<Uint8Array>;
+  loadState?(data: Uint8Array): Promise<void>;
+  screenshot?(): Promise<Blob>;
+
+  /** Tear down: stop the loop, release listeners/DOM, free the instance. */
+  destroy(): void;
+}
+
+/** The default export shape every engine package must provide. */
+export interface EngineSDK {
+  manifest: EngineManifest;
+  load(config: EngineConfig): Promise<EngineInstance>;
+}

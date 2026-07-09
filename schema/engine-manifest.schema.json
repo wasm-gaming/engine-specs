@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wasm-gaming/wasm-specs/schema/engine-manifest.json",
+  "title": "EngineManifest",
+  "description": "The declarative contract an engine subproject ships (mirror of src/manifest.ts).",
+  "type": "object",
+  "required": ["id", "version", "artifacts", "assets", "input", "video", "capabilities"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "artifacts": {
+      "type": "object",
+      "required": ["wasm", "js"],
+      "additionalProperties": false,
+      "properties": {
+        "wasm": { "type": "string" },
+        "js": { "type": "string" },
+        "data": { "type": "string" }
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "mountPath", "required"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "mountPath": { "type": "string", "pattern": "^/" },
+          "required": { "type": "boolean" },
+          "accept": { "type": "array", "items": { "type": "string" } },
+          "validate": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "bytes": { "type": "integer", "minimum": 0 },
+              "sha1": { "type": "string" }
+            }
+          },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "input": {
+      "oneOf": [
+        { "type": "string" },
+        { "type": "object", "additionalProperties": { "type": "string" } }
+      ]
+    },
+    "video": {
+      "type": "object",
+      "required": ["baseWidth", "baseHeight"],
+      "additionalProperties": false,
+      "properties": {
+        "baseWidth": { "type": "integer", "exclusiveMinimum": 0 },
+        "baseHeight": { "type": "integer", "exclusiveMinimum": 0 },
+        "aspect": { "type": "string" }
+      }
+    },
+    "options": { "type": "object" },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "saveStates": { "type": "boolean" },
+        "sram": { "type": "boolean" },
+        "coreSelectable": { "type": "boolean" }
+      }
+    }
+  }
+}
