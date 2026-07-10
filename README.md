@@ -32,6 +32,8 @@ The host drives all engines identically.
 
 ## Usage
 
+For frontend integration examples and host-side wiring, see [USAGE.md](USAGE.md).
+
 An engine implements the contract:
 
 ```ts
