@@ -1,4 +1,4 @@
-# @wasm-gaming/wasm-specs
+# @wasm-gaming/engine-specs
 
 The **engine contract** for the wasm-gaming ecosystem: the single shared interface
 that every WASM game/emulator engine and the host app conform to. Define it once
@@ -6,7 +6,7 @@ here, depend on it everywhere, and engines can't drift.
 
 TypeScript is the source of truth ([src/](src/)); a JSON Schema
 ([schema/engine-manifest.schema.json](schema/engine-manifest.schema.json)) mirrors
-the manifest for non-TS consumers; a zero-dependency validator lets any CI fail on
+the manifest for non-TS consumers; a Zod-based validator lets any CI fail on
 drift.
 
 ## Two layers
@@ -21,14 +21,21 @@ preset, `video` geometry, engine-specific `options` (a JSON Schema), and
 Every engine package default-exports an `EngineSDK` = `{ manifest, load }`.
 `load(config)` boots the engine and returns an `EngineInstance`
 (`start`/`pause`/`resume`/`reset`/`setInput`/`destroy`, plus capability-gated
-`saveState`/`loadState`/`screenshot`). The host drives all engines identically.
+`saveState`/`loadState`/`screenshot`).
+
+`EngineConfig.storageNamespace` is an optional host hint for per-game storage
+segregation (for example OPFS folders like `sonic1` and `sonic2`).
+`EngineInstance.purgeStorage()` is an optional method for engines that can remove
+persisted runtime files for the active namespace only.
+
+The host drives all engines identically.
 
 ## Usage
 
 An engine implements the contract:
 
 ```ts
-import type { EngineSDK, EngineManifest } from '@wasm-gaming/wasm-specs';
+import type { EngineSDK, EngineManifest } from '@wasm-gaming/engine-specs';
 
 export const manifest: EngineManifest = { /* ... */ };
 export async function load(config) { /* ... */ }
@@ -40,7 +47,7 @@ const _sdk: EngineSDK = { manifest, load };
 CI (or the host) validates a manifest at runtime:
 
 ```ts
-import { validateManifest, assertManifest } from '@wasm-gaming/wasm-specs';
+import { validateManifest, assertManifest } from '@wasm-gaming/engine-specs';
 
 const { valid, errors } = validateManifest(json);
 // or: assertManifest(json)  // throws with a readable error list
@@ -50,8 +57,11 @@ const { valid, errors } = validateManifest(json);
 
 ```bash
 npm install
-npm run build      # tsc → dist/ (.js + .d.ts)
-npm run typecheck  # no emit
+make build         # tsc → dist/ (.js + .d.ts)
+make typecheck     # no emit
+make test          # build + node test runner
+make publish-dry-run
+make publish
 ```
 
 ## Consuming

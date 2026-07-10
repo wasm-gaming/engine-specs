@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/wasm-gaming/wasm-specs/schema/engine-manifest.json",
+  "$id": "https://github.com/wasm-gaming/engine-specs/schema/engine-manifest.json",
   "title": "EngineManifest",
   "description": "The declarative contract an engine subproject ships (mirror of src/manifest.ts).",
   "type": "object",

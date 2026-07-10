@@ -22,6 +22,11 @@ export interface EngineConfig {
   options?: Record<string, unknown>;
   /** Persistence backend for saves, when the engine supports it. */
   persist?: PersistMode;
+  /**
+   * Optional storage namespace under the engine's working dir.
+   * Hosts can use this to isolate per-game persisted assets (e.g. sonic1/sonic2).
+   */
+  storageNamespace?: string;
   /** Lifecycle/telemetry sink. Handlers must not throw. */
   onEvent?: (e: EngineEvent) => void;
   /** Override artifact locations (e.g. host-fetched Release assets). */
@@ -49,6 +54,14 @@ export interface EngineInstance {
   saveState?(): Promise<Uint8Array>;
   loadState?(data: Uint8Array): Promise<void>;
   screenshot?(): Promise<Blob>;
+
+  /**
+   * Optional targeted purge of persisted runtime files for the active namespace.
+   * Engines that do not persist assets can omit this method.
+   */
+  purgeStorage?():
+    | { data: boolean; settings: boolean }
+    | Promise<{ data: boolean; settings: boolean }>;
 
   /** Tear down: stop the loop, release listeners/DOM, free the instance. */
   destroy(): void;

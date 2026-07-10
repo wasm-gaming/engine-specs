@@ -1,7 +1,7 @@
 {
-  "name": "@wasm-gaming/wasm-specs",
+  "name": "@wasm-gaming/engine-specs",
   "version": "0.1.0",
-  "description": "The wasm-gaming engine contract: the single shared interface every WASM game/emulator engine and the host app conform to. TypeScript types + JSON Schema + a zero-dependency runtime validator.",
+  "description": "The wasm-gaming engine contract: the single shared interface every WASM game/emulator engine and the host app conform to. TypeScript types + JSON Schema + a Zod runtime validator.",
   "type": "module",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -16,17 +16,15 @@
     "src/",
     "schema/"
   ],
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepare": "tsc -p tsconfig.json"
-  },
   "devDependencies": {
     "typescript": "^5.5.0"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wasm-gaming/wasm-specs"
+    "url": "https://github.com/wasm-gaming/engine-specs"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
   }
 }
