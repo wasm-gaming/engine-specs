@@ -22,7 +22,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wasm-gaming/engine-specs"
+    "url": "git+https://github.com/wasm-gaming/engine-specs.git"
   },
   "dependencies": {
     "zod": "^4.4.3"
