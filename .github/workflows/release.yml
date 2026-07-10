@@ -36,6 +36,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          scope: '@wasm-gaming'
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies

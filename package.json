@@ -16,6 +16,11 @@
     "src/",
     "schema/"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "devDependencies": {
     "typescript": "^5.5.0"
   },
