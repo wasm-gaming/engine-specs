@@ -1,34 +1,40 @@
 import { createDummySdk } from "./demo.sdk.js";
+import { ejs } from "./e.js";
 
-const pageEl = document.getElementById("page");
-const launcherEl = document.getElementById("launcher");
-const sdkInfoEl = document.getElementById("sdk-info");
-const dropAreaEl = document.getElementById("drop-area");
-const statusEl = document.getElementById("status");
-const fileInputEl = document.getElementById("file-input");
+const pageEl = document.querySelector("div.page");
+if (!(pageEl instanceof HTMLElement)) {
+  throw new Error("Demo page boot failed: missing required elements.");
+}
+
+const sdk = createDummySdk();
+
+pageEl.innerHTML = ejs.fromNamedTemplate("launcher");
+
+const launcherEl = pageEl.querySelector("form.launcher");
+const sdkInfoEl = pageEl.querySelector("section.sdk");
+const dropAreaEl = pageEl.querySelector("section.drop");
+const statusEl = pageEl.querySelector("div.status");
+const fileInputEl = pageEl.querySelector("input[type='file']");
 
 if (
-  !(pageEl instanceof HTMLElement) ||
   !(launcherEl instanceof HTMLElement) ||
   !(sdkInfoEl instanceof HTMLElement) ||
   !(dropAreaEl instanceof HTMLElement) ||
   !(statusEl instanceof HTMLElement) ||
   !(fileInputEl instanceof HTMLInputElement)
 ) {
-  throw new Error("Demo page boot failed: missing required elements.");
+  throw new Error("Demo page boot failed: missing required launcher elements.");
 }
 
-const sdk = createDummySdk();
-
-sdkInfoEl.innerHTML = `
-  <h1>${sdk.manifest.name} (${sdk.manifest.id})</h1>
-  <p>${sdk.manifest.description ?? "No description"}</p>
-  <div class="row">
-    <span class="pill">Version ${sdk.manifest.version}</span>
-    <span class="pill">${sdk.manifest.video.baseWidth}x${sdk.manifest.video.baseHeight}</span>
-    <span class="pill">Asset key: ${sdk.manifest.assets[0]?.key ?? "rom"}</span>
-  </div>
-`;
+sdkInfoEl.innerHTML = ejs.fromNamedTemplate("sdk-info", {
+  name: sdk.manifest.name,
+  id: sdk.manifest.id,
+  description: sdk.manifest.description,
+  version: sdk.manifest.version,
+  baseWidth: sdk.manifest.video.baseWidth,
+  baseHeight: sdk.manifest.video.baseHeight,
+  assetKey: sdk.manifest.assets[0]?.key ?? "rom",
+});
 
 const setStatus = (message) => {
   statusEl.textContent = message;
