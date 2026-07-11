@@ -6,6 +6,20 @@ const escapeHtml = (value) =>
 export const $ = (selector, el = document) => el.querySelector(selector);
 export const $$ = (selector, el = document) => Array.from(el.querySelectorAll(selector));
 
+// $create(tag, attrs): attrs are set as attributes, except className, which
+// may be a string or an array of class names.
+export const $create = (tag, attrs = {}) => {
+  const el = document.createElement(tag);
+  for (const [name, value] of Object.entries(attrs)) {
+    if (name === 'className') {
+      el.className = Array.isArray(value) ? value.join(' ') : value;
+    } else {
+      el.setAttribute(name, value);
+    }
+  }
+  return el;
+};
+
 // Templates compile to an AST rendered recursively, so no new Function/eval
 // is needed (CSP-safe). The price: expressions must be dot paths (a.b.c), not
 // arbitrary JS, and scriptlets are limited to `if (...) {`, `} else {`,
@@ -128,20 +142,48 @@ export function loadTemplates(html) {
   return templates;
 }
 
+// <style> blocks support EJS tags too, but interpolations emit raw values:
+// HTML entity escaping would corrupt CSS, so `<%= %>` and `<%- %>` behave
+// identically there.
+const rawify = (nodes) => {
+  for (const node of nodes) {
+    if (node.type === 'interp') {
+      node.escape = false;
+    } else if (node.type === 'if') {
+      rawify(node.consequent);
+      rawify(node.alternate);
+    } else if (node.type === 'each') {
+      rawify(node.children);
+    }
+  }
+  return nodes;
+};
+
+const isStatic = (nodes) => nodes.every((node) => node.type === 'text');
+
 // A component file is an optional <script> (its default export, or its body
 // when a :fn="{ destructured, args }" attribute declares the signature), raw
-// template markup, and optional <style> blocks. mount() renders the template
-// into el, injects the styles once, and runs the script with { el, ...props }.
-export async function fetchEJS(url) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch component from ${url}: ${response.status}`);
-  }
-
+// template markup, and optional <style> blocks. Template and styles are EJS;
+// the script is plain JS — it receives the live data at run time, so it needs
+// no templating (and re-importing rendered module sources would leak modules).
+//
+// mount(el, props) / mountShadow(el, props) render into el (or its shadow
+// root) and return an instance:
+//   update(patch) — merge patch into the data, re-render template and dynamic
+//                   CSS, re-run the script (its previous cleanup runs first).
+//   unmount()     — run the script's cleanup and remove rendered DOM/styles;
+//                   a later update() renders it back.
+//   destroy()     — unmount permanently; further update() calls throw.
+//   api           — whatever the script returned; its optional `destroy()` is
+//                   the cleanup hook invoked on update/unmount/destroy.
+// Static CSS is shared across instances (one global <style> for mount, one
+// adopted stylesheet for mountShadow); CSS with EJS tags is per-instance and
+// re-rendered on every update.
+export async function parseComponent(source) {
   let script = null;
   const styles = [];
 
-  const source = (await response.text())
+  const markup = source
     .replace(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/g, (_, attrs, code) => {
       script = { code, signature: attrs?.match(/:fn\s*=\s*"([^"]*)"/)?.[1] ?? null };
       return '';
@@ -151,8 +193,9 @@ export async function fetchEJS(url) {
       return '';
     });
 
-  const ast = parseEJS(source.trim());
-  const css = styles.join('\n');
+  const ast = parseEJS(markup.trim());
+  const cssAst = rawify(parseEJS(styles.join('\n')));
+  const staticCss = isStatic(cssAst);
 
   let fn = null;
   if (script) {
@@ -162,35 +205,124 @@ export async function fetchEJS(url) {
     fn = (await import(`data:text/javascript,${encodeURIComponent(moduleSource)}`)).default;
   }
 
-  let cssInjected = false;
-  let sheet = null;
+  let globalStyleInjected = false;
+  let sharedSheet = null;
+
+  const createInstance = async (root, props, styler) => {
+    const data = { ...props };
+    let api = null;
+    let alive = true;
+
+    const render = async () => {
+      api?.destroy?.();
+      styler.apply(data);
+      root.innerHTML = renderEJS(ast, data);
+      api = (await fn?.(root, data)) ?? null;
+    };
+
+    const instance = {
+      root,
+      data,
+      get api() {
+        return api;
+      },
+      async update(patch) {
+        if (!alive) {
+          throw new Error('Cannot update a destroyed component instance');
+        }
+        Object.assign(data, patch);
+        await render();
+      },
+      unmount() {
+        api?.destroy?.();
+        api = null;
+        root.innerHTML = '';
+        styler.drop();
+      },
+      destroy() {
+        if (!alive) {
+          return;
+        }
+        instance.unmount();
+        alive = false;
+      },
+    };
+
+    await render();
+    return instance;
+  };
+
   return {
     ast,
-    css,
+    cssAst,
     fn,
+
     async mount(el, props) {
-      if (css && !cssInjected) {
-        cssInjected = true;
-        document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
-      }
-      el.innerHTML = renderEJS(ast, props);
-      return fn?.(el, props);
+      const styler = {
+        styleEl: null,
+        apply(data) {
+          if (!cssAst.length) {
+            return;
+          }
+          if (staticCss) {
+            if (!globalStyleInjected) {
+              globalStyleInjected = true;
+              document.head.insertAdjacentHTML('beforeend', `<style>${renderEJS(cssAst, data)}</style>`);
+            }
+            return;
+          }
+          if (!this.styleEl) {
+            this.styleEl = document.createElement('style');
+            document.head.appendChild(this.styleEl);
+          }
+          this.styleEl.textContent = renderEJS(cssAst, data);
+        },
+        drop() {
+          this.styleEl?.remove();
+          this.styleEl = null;
+        },
+      };
+      return createInstance(el, props, styler);
     },
 
     // Like mount, but renders into el's shadow root: the component's CSS is
-    // scoped to the shadow tree (shared via one adopted stylesheet) instead
-    // of injected globally, and fn receives the shadow root as `el`.
+    // scoped to the shadow tree instead of injected globally, and the script
+    // receives the shadow root as `el`.
     async mountShadow(el, props) {
       const root = el.shadowRoot ?? el.attachShadow({ mode: 'open' });
-      if (css) {
-        if (!sheet) {
-          sheet = new CSSStyleSheet();
-          sheet.replaceSync(css);
-        }
-        root.adoptedStyleSheets = [sheet];
-      }
-      root.innerHTML = renderEJS(ast, props);
-      return fn?.(root, props);
+      const styler = {
+        sheet: null,
+        apply(data) {
+          if (!cssAst.length) {
+            return;
+          }
+          if (staticCss) {
+            if (!sharedSheet) {
+              sharedSheet = new CSSStyleSheet();
+              sharedSheet.replaceSync(renderEJS(cssAst, data));
+            }
+            root.adoptedStyleSheets = [sharedSheet];
+            return;
+          }
+          if (!this.sheet) {
+            this.sheet = new CSSStyleSheet();
+          }
+          this.sheet.replaceSync(renderEJS(cssAst, data));
+          root.adoptedStyleSheets = [this.sheet];
+        },
+        drop() {
+          root.adoptedStyleSheets = [];
+        },
+      };
+      return createInstance(root, props, styler);
     },
   };
+}
+
+export async function fetchEJS(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch component from ${url}: ${response.status}`);
+  }
+  return parseComponent(await response.text());
 }

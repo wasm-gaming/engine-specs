@@ -1,6 +1,6 @@
 import { createDummySdk } from "./demo.sdk.js";
 import { checksumAlgorithms, computeChecksums } from "./checksums.js";
-import { $, fetchEJS } from "./e.js";
+import { $, $create, fetchEJS } from "./e.js";
 
 const [launcher, sdkInfo, fileInfo] = await Promise.all([
   fetchEJS('./components/launcher.html'),
@@ -20,21 +20,18 @@ const bootWithFile = async (file) => {
 
   pageEl.classList.add("running");
 
-  const runtimeEl = document.createElement("div");
-  runtimeEl.className = "runtime";
+  const runtimeEl = $create("div", { className: "runtime" });
 
-  const fileInfoEl = document.createElement("section");
-  fileInfoEl.className = "file-info";
+  const fileInfoEl = $create("section", { className: "file-info" });
   runtimeEl.appendChild(fileInfoEl);
 
   pageEl.replaceChildren(runtimeEl);
 
-  const info = {
+  const fileInfoInstance = await fileInfo.mountShadow(fileInfoEl, {
     fileName: file.name,
     size: `${bytes.byteLength.toLocaleString()} bytes`,
     checksums: checksumAlgorithms.map((label) => ({ label, value: "computing…" })),
-  };
-  await fileInfo.mountShadow(fileInfoEl, info);
+  });
 
   const instance = await sdk.load({
     attachTo: runtimeEl,
@@ -54,8 +51,7 @@ const bootWithFile = async (file) => {
 
   instance.start();
 
-  info.checksums = await computeChecksums(bytes);
-  await fileInfo.mountShadow(fileInfoEl, info);
+  await fileInfoInstance.update({ checksums: await computeChecksums(bytes) });
 };
 
 await launcher.mount(pageEl, { onFile: bootWithFile });
