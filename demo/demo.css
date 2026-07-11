@@ -1,7 +1,7 @@
 :root {
   --bg-a: #101728;
   --bg-b: #1f1a3a;
-  --panel: rgba(7, 11, 23, 0.84);
+  --panel: rgba(7, 11, 23, 0.4);
   --line: rgba(255, 255, 255, 0.15);
   --text: #f8f9ff;
   --muted: #a8afc5;
@@ -25,24 +25,21 @@ body {
   font-family: "Avenir Next", "Segoe UI", sans-serif;
 }
 
-.page {
-  min-height: 100%;
+main {
+  min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   padding: 1.5rem;
 }
 
-.page.running {
-  display: block;
+main.running {
   padding: 0;
 }
 
 .runtime {
   position: relative;
-  width: 100vw;
-  height: 100vh;
-  display: grid;
-  place-items: center;
+  aspect-ratio: 5 / 4;
 }
 
 .runtime canvas {

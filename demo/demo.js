@@ -8,8 +8,8 @@ const [launcher, sdkInfo, fileInfo] = await Promise.all([
   fetchEJS('./components/file-info.html'),
 ]);
 
-const pageEl = $("div.page");
-if (!(pageEl instanceof HTMLElement)) {
+const mainEl = $("main");
+if (!(mainEl instanceof HTMLElement)) {
   throw new Error("Demo page boot failed: missing required elements.");
 }
 
@@ -18,18 +18,22 @@ const sdk = createDummySdk();
 const bootWithFile = async (file) => {
   const bytes = await file.arrayBuffer();
 
-  pageEl.classList.add("running");
-
-  const runtimeEl = $create("div", { className: "runtime" });
+  mainEl.classList.add("running");
 
   const fileInfoEl = $create("section", { className: "file-info" });
-  runtimeEl.appendChild(fileInfoEl);
+  const runtimeEl = $create("div", {
+    className: "runtime",
+    children: [fileInfoEl],
+  });
 
-  pageEl.replaceChildren(runtimeEl);
+  mainEl.replaceChildren(runtimeEl);
 
-  const fileInfoInstance = await fileInfo.mountShadow(fileInfoEl, {
+  const fileInfoProps = {
     fileName: file.name,
     size: `${bytes.byteLength.toLocaleString()} bytes`,
+  };
+  const fileInfoPlaceholder = await fileInfo.mountShadow(fileInfoEl, {
+    ...fileInfoProps,
     checksums: checksumAlgorithms.map((label) => ({ label, value: "computing…" })),
   });
 
@@ -51,12 +55,14 @@ const bootWithFile = async (file) => {
 
   instance.start();
 
-  await fileInfoInstance.update({ checksums: await computeChecksums(bytes) });
+  const checksums = await computeChecksums(bytes);
+  fileInfoPlaceholder.destroy();
+  await fileInfo.mountShadow(fileInfoEl, { ...fileInfoProps, checksums });
 };
 
-await launcher.mount(pageEl, { onFile: bootWithFile });
+await launcher.mount(mainEl, { onFile: bootWithFile });
 
-const sdkInfoEl = pageEl.querySelector("section.sdk");
+const sdkInfoEl = mainEl.querySelector("section.sdk");
 if (!(sdkInfoEl instanceof HTMLElement)) {
   throw new Error("Demo page boot failed: missing required launcher elements.");
 }

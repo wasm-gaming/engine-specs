@@ -13,6 +13,12 @@ export const $create = (tag, attrs = {}) => {
   for (const [name, value] of Object.entries(attrs)) {
     if (name === 'className') {
       el.className = Array.isArray(value) ? value.join(' ') : value;
+    } else if (name === 'textContent') {
+      el.textContent = value;
+    } else if (name === 'children') {
+      for (const child of value) {
+        el.appendChild(child);
+      }
     } else {
       el.setAttribute(name, value);
     }
@@ -168,17 +174,18 @@ const isStatic = (nodes) => nodes.every((node) => node.type === 'text');
 // no templating (and re-importing rendered module sources would leak modules).
 //
 // mount(el, props) / mountShadow(el, props) render into el (or its shadow
-// root) and return an instance:
-//   update(patch) — merge patch into the data, re-render template and dynamic
-//                   CSS, re-run the script (its previous cleanup runs first).
-//   unmount()     — run the script's cleanup and remove rendered DOM/styles;
-//                   a later update() renders it back.
-//   destroy()     — unmount permanently; further update() calls throw.
-//   api           — whatever the script returned; its optional `destroy()` is
-//                   the cleanup hook invoked on update/unmount/destroy.
+// root) once and return an instance:
+//   destroy() — run the script's cleanup and remove rendered DOM/styles;
+//               idempotent.
+//   api       — whatever the script returned; its optional `destroy()` is
+//               the cleanup hook invoked on destroy.
+// There is deliberately no update(): re-rendering would drop DOM state and
+// re-run the script, orphaning its timers/listeners/requests. To change what
+// is shown, expose helpers on the script's api — or destroy() and mount
+// again with the new props, which is the same work made explicit.
 // Static CSS is shared across instances (one global <style> for mount, one
-// adopted stylesheet for mountShadow); CSS with EJS tags is per-instance and
-// re-rendered on every update.
+// adopted stylesheet for mountShadow); CSS with EJS tags is rendered once
+// per instance.
 export async function parseComponent(source) {
   let script = null;
   const styles = [];
@@ -208,48 +215,57 @@ export async function parseComponent(source) {
   let globalStyleInjected = false;
   let sharedSheet = null;
 
+  // mount and mountShadow share the CSS lifecycle — no CSS, static CSS
+  // (rendered once, shared by every instance), or dynamic CSS (rendered per
+  // instance) — and differ only in the medium. `shared`/`own` install the
+  // artifact and return its remover (null when nothing per-instance remains).
+  const makeStyler = (shared, own) => (data) => {
+    if (!cssAst.length) {
+      return null;
+    }
+    return (staticCss ? shared : own)(renderEJS(cssAst, data));
+  };
+
+  const headStyle = (textContent) => {
+    return document.head
+      .appendChild($create('style', { textContent }));
+  };
+
+  const adoptSheet = (root, sheet) => {
+    root.adoptedStyleSheets = [sheet];
+    return () => {
+      root.adoptedStyleSheets = [];
+    };
+  };
+
   const createInstance = async (root, props, styler) => {
     const data = { ...props };
-    let api = null;
+
+    const dropCss = styler(data);
+    root.innerHTML = renderEJS(ast, data);
+    let api = (await fn?.(root, {
+      $, $$, $create,
+      ...data,
+    })) ?? null;
     let alive = true;
 
-    const render = async () => {
-      api?.destroy?.();
-      styler.apply(data);
-      root.innerHTML = renderEJS(ast, data);
-      api = (await fn?.(root, data)) ?? null;
-    };
-
-    const instance = {
+    return {
       root,
       data,
       get api() {
         return api;
       },
-      async update(patch) {
-        if (!alive) {
-          throw new Error('Cannot update a destroyed component instance');
-        }
-        Object.assign(data, patch);
-        await render();
-      },
-      unmount() {
-        api?.destroy?.();
-        api = null;
-        root.innerHTML = '';
-        styler.drop();
-      },
       destroy() {
         if (!alive) {
           return;
         }
-        instance.unmount();
         alive = false;
+        api?.destroy?.();
+        api = null;
+        root.innerHTML = '';
+        dropCss?.();
       },
     };
-
-    await render();
-    return instance;
   };
 
   return {
@@ -258,31 +274,18 @@ export async function parseComponent(source) {
     fn,
 
     async mount(el, props) {
-      const styler = {
-        styleEl: null,
-        apply(data) {
-          if (!cssAst.length) {
-            return;
-          }
-          if (staticCss) {
-            if (!globalStyleInjected) {
-              globalStyleInjected = true;
-              document.head.insertAdjacentHTML('beforeend', `<style>${renderEJS(cssAst, data)}</style>`);
-            }
-            return;
-          }
-          if (!this.styleEl) {
-            this.styleEl = document.createElement('style');
-            document.head.appendChild(this.styleEl);
-          }
-          this.styleEl.textContent = renderEJS(cssAst, data);
+      return createInstance(el, props, makeStyler(
+        (css) => {
+          if (globalStyleInjected) return null;
+          // the shared <style> outlives instances
+          globalStyleInjected = true;
+          headStyle(css);
         },
-        drop() {
-          this.styleEl?.remove();
-          this.styleEl = null;
+        (css) => {
+          const styleEl = headStyle(css);
+          return () => styleEl.remove();
         },
-      };
-      return createInstance(el, props, styler);
+      ));
     },
 
     // Like mount, but renders into el's shadow root: the component's CSS is
@@ -290,31 +293,20 @@ export async function parseComponent(source) {
     // receives the shadow root as `el`.
     async mountShadow(el, props) {
       const root = el.shadowRoot ?? el.attachShadow({ mode: 'open' });
-      const styler = {
-        sheet: null,
-        apply(data) {
-          if (!cssAst.length) {
-            return;
+      return createInstance(root, props, makeStyler(
+        (css) => {
+          if (!sharedSheet) {
+            sharedSheet = new CSSStyleSheet();
+            sharedSheet.replaceSync(css);
           }
-          if (staticCss) {
-            if (!sharedSheet) {
-              sharedSheet = new CSSStyleSheet();
-              sharedSheet.replaceSync(renderEJS(cssAst, data));
-            }
-            root.adoptedStyleSheets = [sharedSheet];
-            return;
-          }
-          if (!this.sheet) {
-            this.sheet = new CSSStyleSheet();
-          }
-          this.sheet.replaceSync(renderEJS(cssAst, data));
-          root.adoptedStyleSheets = [this.sheet];
+          return adoptSheet(root, sharedSheet);
         },
-        drop() {
-          root.adoptedStyleSheets = [];
+        (css) => {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync(css);
+          return adoptSheet(root, sheet);
         },
-      };
-      return createInstance(root, props, styler);
+      ));
     },
   };
 }
