@@ -1,12 +1,12 @@
 import { createDummySdk } from "./demo.sdk.js";
-import { ejs } from "./e.js";
+import { $, fetchEJS } from "./e.js";
 
-await ejs.loadComponents(
-  new URL("./components/launcher.html", import.meta.url),
-  new URL("./components/sdk-info.html", import.meta.url),
-);
+const [launcher, sdkInfo] = await Promise.all([
+  fetchEJS('./components/launcher.html'),
+  fetchEJS('./components/sdk-info.html'),
+]);
 
-const pageEl = document.querySelector("div.page");
+const pageEl = $("div.page");
 if (!(pageEl instanceof HTMLElement)) {
   throw new Error("Demo page boot failed: missing required elements.");
 }
@@ -44,14 +44,14 @@ const bootWithFile = async (file) => {
   instance.start();
 };
 
-await ejs.mount("launcher", pageEl, { onFile: bootWithFile });
+await launcher.mount(pageEl, { onFile: bootWithFile });
 
 const sdkInfoEl = pageEl.querySelector("section.sdk");
 if (!(sdkInfoEl instanceof HTMLElement)) {
   throw new Error("Demo page boot failed: missing required launcher elements.");
 }
 
-await ejs.mount("sdk-info", sdkInfoEl, {
+await sdkInfo.mountShadow(sdkInfoEl, {
   name: sdk.manifest.name,
   id: sdk.manifest.id,
   description: sdk.manifest.description,

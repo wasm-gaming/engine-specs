@@ -3,6 +3,9 @@ const escapeHtml = (value) =>
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
   ));
 
+export const $ = (selector, el = document) => el.querySelector(selector);
+export const $$ = (selector, el = document) => Array.from(el.querySelectorAll(selector));
+
 // Templates compile to an AST rendered recursively, so no new Function/eval
 // is needed (CSP-safe). The price: expressions must be dot paths (a.b.c), not
 // arbitrary JS, and scriptlets are limited to `if (...) {`, `} else {`,
@@ -32,7 +35,27 @@ function resolvePath(expr, scopes) {
   return value;
 }
 
-function parse(source) {
+function renderNodes(nodes, scopes) {
+  let out = '';
+  for (const node of nodes) {
+    if (node.type === 'text') {
+      out += node.value;
+    } else if (node.type === 'interp') {
+      const value = resolvePath(node.expr, scopes) ?? '';
+      out += node.escape ? escapeHtml(value) : String(value);
+    } else if (node.type === 'if') {
+      out += renderNodes(resolvePath(node.test, scopes) ? node.consequent : node.alternate, scopes);
+    } else {
+      const list = resolvePath(node.list, scopes) ?? [];
+      for (const item of list) {
+        out += renderNodes(node.children, [...scopes, { [node.item]: item }]);
+      }
+    }
+  }
+  return out;
+}
+
+export function parseEJS(source) {
   const root = [];
   const stack = [{ children: root }];
   const top = () => stack[stack.length - 1];
@@ -85,90 +108,89 @@ function parse(source) {
   return root;
 }
 
-function renderNodes(nodes, scopes) {
-  let out = '';
-  for (const node of nodes) {
-    if (node.type === 'text') {
-      out += node.value;
-    } else if (node.type === 'interp') {
-      const value = resolvePath(node.expr, scopes) ?? '';
-      out += node.escape ? escapeHtml(value) : String(value);
-    } else if (node.type === 'if') {
-      out += renderNodes(resolvePath(node.test, scopes) ? node.consequent : node.alternate, scopes);
-    } else {
-      const list = resolvePath(node.list, scopes) ?? [];
-      for (const item of list) {
-        out += renderNodes(node.children, [...scopes, { [node.item]: item }]);
-      }
+export function renderEJS(ast, data) {
+  return renderNodes(ast, [data ?? {}]);
+}
+
+// Extracts every <script type="text/html" name="..."> from an HTML string and
+// returns { [name]: ast }. String-level extraction: the templates are never
+// parsed as DOM, so EJS tags survive intact anywhere.
+export function loadTemplates(html) {
+  const templates = {};
+  const re = /<script\s[^>]*type="text\/html"[^>]*>([\s\S]*?)<\/script>/g;
+  let match;
+  while ((match = re.exec(html))) {
+    const name = match[0].match(/\sname="([^"]+)"/)?.[1];
+    if (name) {
+      templates[name] = parseEJS(match[1].trim());
     }
   }
-  return out;
+  return templates;
 }
 
-function compile(source) {
-  const ast = parse(source);
-  return (data) => renderNodes(ast, [data ?? {}]);
+// A component file is an optional <script> (its default export, or its body
+// when a :fn="{ destructured, args }" attribute declares the signature), raw
+// template markup, and optional <style> blocks. mount() renders the template
+// into el, injects the styles once, and runs the script with { el, ...props }.
+export async function fetchEJS(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch component from ${url}: ${response.status}`);
+  }
+
+  let script = null;
+  const styles = [];
+
+  const source = (await response.text())
+    .replace(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/g, (_, attrs, code) => {
+      script = { code, signature: attrs?.match(/:fn\s*=\s*"([^"]*)"/)?.[1] ?? null };
+      return '';
+    })
+    .replace(/<style[^>]*>([\s\S]*?)<\/style>/g, (_, css) => {
+      styles.push(css);
+      return '';
+    });
+
+  const ast = parseEJS(source.trim());
+  const css = styles.join('\n');
+
+  let fn = null;
+  if (script) {
+    const moduleSource = script.signature
+      ? `export default ($el, $props) => {\nconst ${script.signature} = { el: $el, ...$props };\n${script.code}\n};`
+      : script.code;
+    fn = (await import(`data:text/javascript,${encodeURIComponent(moduleSource)}`)).default;
+  }
+
+  let cssInjected = false;
+  let sheet = null;
+  return {
+    ast,
+    css,
+    fn,
+    async mount(el, props) {
+      if (css && !cssInjected) {
+        cssInjected = true;
+        document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`);
+      }
+      el.innerHTML = renderEJS(ast, props);
+      return fn?.(el, props);
+    },
+
+    // Like mount, but renders into el's shadow root: the component's CSS is
+    // scoped to the shadow tree (shared via one adopted stylesheet) instead
+    // of injected globally, and fn receives the shadow root as `el`.
+    async mountShadow(el, props) {
+      const root = el.shadowRoot ?? el.attachShadow({ mode: 'open' });
+      if (css) {
+        if (!sheet) {
+          sheet = new CSSStyleSheet();
+          sheet.replaceSync(css);
+        }
+        root.adoptedStyleSheets = [sheet];
+      }
+      root.innerHTML = renderEJS(ast, props);
+      return fn?.(root, props);
+    },
+  };
 }
-
-const cache = new Map();
-const namedTemplates = new Map();
-const componentModules = new Map();
-
-export const ejs = {
-  // Each component file is an optional <script> (an ES module whose default
-  // export runs on mount), raw template markup, and optional <style> blocks;
-  // the template is registered under the file's basename. Script and style
-  // are extracted at the string level, so the markup is never parsed as DOM
-  // and EJS tags survive intact anywhere.
-  async loadComponents(...urls) {
-    await Promise.all(urls.map(async (url) => {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to load component from ${url}: ${response.status}`);
-      }
-
-      const name = new URL(url, document.baseURI).pathname
-        .split('/').pop().replace(/\.html$/, '');
-
-      const scripts = [];
-      const source = (await response.text())
-        .replace(/<script>([\s\S]*?)<\/script>/g, (_, code) => {
-          scripts.push(code);
-          return '';
-        })
-        .replace(/<style[\s\S]*?<\/style>/g, (styleTag) => {
-          document.head.insertAdjacentHTML('beforeend', styleTag);
-          return '';
-        });
-
-      namedTemplates.set(name, source.trim());
-
-      if (scripts.length) {
-        const moduleUrl = `data:text/javascript,${encodeURIComponent(scripts.join('\n'))}`;
-        componentModules.set(name, await import(moduleUrl));
-      }
-    }));
-  },
-
-  async mount(name, el, props) {
-    el.innerHTML = this.fromNamedTemplate(name, props);
-    return componentModules.get(name)?.default?.(el, props);
-  },
-
-  render(source, data) {
-    let render = cache.get(source);
-    if (!render) {
-      render = compile(source);
-      cache.set(source, render);
-    }
-    return render(data);
-  },
-
-  fromNamedTemplate(name, data) {
-    const source = namedTemplates.get(name);
-    if (source == null) {
-      throw new Error(`Missing template named ${name}`);
-    }
-    return this.render(source, data);
-  },
-};
