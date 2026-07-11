@@ -20,8 +20,8 @@ export function createDummySdk() {
 		input: "keyboard-default",
 		video: {
 			baseWidth: 320,
-			baseHeight: 180,
-			aspect: "16:9",
+			baseHeight: 256,
+			aspect: "5:4",
 		},
 		capabilities: {
 			saveStates: false,
@@ -46,8 +46,9 @@ export function createDummySdk() {
 
 			const fitCanvasToWindow = () => {
 				const dpr = window.devicePixelRatio || 1;
-				const width = Math.max(1, Math.floor(window.innerWidth * dpr));
-				const height = Math.max(1, Math.floor(window.innerHeight * dpr));
+				const rect = config.canvasEl.getBoundingClientRect();
+				const width = Math.max(1, Math.floor(rect.width * dpr));
+				const height = Math.max(1, Math.floor(rect.height * dpr));
 				config.canvasEl.width = width;
 				config.canvasEl.height = height;
 			};
