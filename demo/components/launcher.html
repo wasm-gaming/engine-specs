@@ -1,3 +1,69 @@
+<script>
+  export default (el, { onFile }) => {
+    const dropAreaEl = el.querySelector("section.drop");
+    const statusEl = el.querySelector("div.status");
+    const fileInputEl = el.querySelector("input[type='file']");
+
+    const setStatus = (message) => {
+      statusEl.textContent = message;
+    };
+
+    const onFileList = async (files) => {
+      const file = files.item(0);
+      if (!file) {
+        return;
+      }
+      try {
+        setStatus(`Loading ${file.name}...`);
+        await onFile(file);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setStatus(`Failed to load file: ${message}`);
+      }
+    };
+
+    dropAreaEl.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropAreaEl.classList.add("active");
+    });
+
+    dropAreaEl.addEventListener("dragleave", () => {
+      dropAreaEl.classList.remove("active");
+    });
+
+    dropAreaEl.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      dropAreaEl.classList.remove("active");
+      if (event.dataTransfer?.files) {
+        await onFileList(event.dataTransfer.files);
+      }
+    });
+
+    fileInputEl.addEventListener("change", async () => {
+      if (fileInputEl.files) {
+        await onFileList(fileInputEl.files);
+      }
+    });
+
+    setStatus("Waiting for ROM/asset file...");
+
+    return { setStatus };
+  };
+</script>
+
+<form class="launcher">
+  <section class="sdk"></section>
+  <section class="drop">
+    <strong>Drop your ROM/asset file here</strong>
+    <p>or choose one from your computer</p>
+    <label class="picker">
+      Pick file
+      <input type="file" />
+    </label>
+  </section>
+  <div class="status"></div>
+</form>
+
 <style>
   .launcher {
     width: min(740px, 100%);
@@ -61,16 +127,3 @@
     font-size: 0.92rem;
   }
 </style>
-
-<form class="launcher">
-  <section class="sdk"></section>
-  <section class="drop">
-    <strong>Drop your ROM/asset file here</strong>
-    <p>or choose one from your computer</p>
-    <label class="picker">
-      Pick file
-      <input type="file" />
-    </label>
-  </section>
-  <div class="status"></div>
-</form>

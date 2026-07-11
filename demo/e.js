@@ -41,28 +41,47 @@ function compile(source) {
 
 const cache = new Map();
 const namedTemplates = new Map();
+const componentModules = new Map();
 
 export const ejs = {
-  // Each component file is <style> blocks plus raw template markup; the
-  // template is registered under the file's basename. The markup is kept as
-  // text (never parsed as DOM), so EJS tags survive intact anywhere.
-  async loadTemplates(...urls) {
+  // Each component file is an optional <script> (an ES module whose default
+  // export runs on mount), raw template markup, and optional <style> blocks;
+  // the template is registered under the file's basename. Script and style
+  // are extracted at the string level, so the markup is never parsed as DOM
+  // and EJS tags survive intact anywhere.
+  async loadComponents(...urls) {
     await Promise.all(urls.map(async (url) => {
       const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`Failed to load template from ${url}: ${response.status}`);
+        throw new Error(`Failed to load component from ${url}: ${response.status}`);
       }
 
       const name = new URL(url, document.baseURI).pathname
         .split('/').pop().replace(/\.html$/, '');
 
-      const source = (await response.text()).replace(/<style[\s\S]*?<\/style>/g, (styleTag) => {
-        document.head.insertAdjacentHTML('beforeend', styleTag);
-        return '';
-      });
+      const scripts = [];
+      const source = (await response.text())
+        .replace(/<script>([\s\S]*?)<\/script>/g, (_, code) => {
+          scripts.push(code);
+          return '';
+        })
+        .replace(/<style[\s\S]*?<\/style>/g, (styleTag) => {
+          document.head.insertAdjacentHTML('beforeend', styleTag);
+          return '';
+        });
 
       namedTemplates.set(name, source.trim());
+
+      if (scripts.length) {
+        const moduleUrl = `data:text/javascript,${encodeURIComponent(scripts.join('\n'))}`;
+        componentModules.set(name, await import(moduleUrl));
+      }
     }));
+  },
+
+  async mount(name, el, props) {
+    el.innerHTML = this.fromNamedTemplate(name, props);
+    return componentModules.get(name)?.default?.(el, props);
   },
 
   render(source, data) {
