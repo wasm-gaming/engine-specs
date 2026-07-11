@@ -23,6 +23,10 @@ Every engine package default-exports an `EngineSDK` = `{ manifest, load }`.
 (`start`/`pause`/`resume`/`reset`/`setInput`/`destroy`, plus capability-gated
 `saveState`/`loadState`/`screenshot`).
 
+`EngineConfig` requires at least one render mount target: `canvasEl`, `attachTo`,
+or both. `attachTo` is the host container element where an SDK can mount
+engine-owned DOM.
+
 `EngineConfig.storageNamespace` is an optional host hint for per-game storage
 segregation (for example OPFS folders like `sonic1` and `sonic2`).
 `EngineInstance.purgeStorage()` is an optional method for engines that can remove

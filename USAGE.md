@@ -8,6 +8,8 @@ The host usually does three things:
 2. Validates the manifest before showing the game in the UI.
 3. Loads the engine into a `<canvas>` and forwards input, pause/resume, and save-state actions.
 
+`sdk.load()` accepts `canvasEl`, `attachTo`, or both, but requires at least one.
+
 ## 1) Load and validate the manifest
 
 Use the runtime validator before rendering any engine-specific UI. This keeps a broken manifest from reaching the player.
@@ -30,14 +32,27 @@ const manifest = assertManifest(manifestJson);
 
 ## 2) Vanilla frontend bootstrap
 
-This is the smallest host integration: create a canvas, load the engine package, and mount the runtime assets the engine asks for.
+This is the smallest host integration: create a container and canvas, load the engine package, and mount the runtime assets the engine asks for.
+
+Minimal host markup:
+
+```html
+<div id="game-root">
+  <canvas id="game-canvas" width="320" height="240"></canvas>
+</div>
+```
 
 ```ts
 import type { EngineSDK } from '@wasm-gaming/engine-specs';
 
 async function startEngine() {
-  const canvas = document.querySelector<HTMLCanvasElement>('#game-canvas');
-  if (!canvas) {
+  const mountEl = document.querySelector<HTMLElement>('#game-root');
+  if (!mountEl) {
+    throw new Error('Missing #game-root');
+  }
+
+  const canvasEl = document.querySelector<HTMLCanvasElement>('#game-canvas');
+  if (!canvasEl) {
     throw new Error('Missing #game-canvas');
   }
 
@@ -48,7 +63,8 @@ async function startEngine() {
   const rom = await romResponse.arrayBuffer();
 
   const instance = await sdk.load({
-    canvas,
+    attachTo: mountEl,
+    canvasEl,
     assets: {
       rom,
     },
@@ -84,6 +100,7 @@ type PlayerProps = {
 };
 
 export function Player({ engineUrl, romUrl }: PlayerProps) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const instanceRef = useRef<EngineInstance | null>(null);
 
@@ -91,8 +108,9 @@ export function Player({ engineUrl, romUrl }: PlayerProps) {
     let disposed = false;
 
     async function boot() {
-      const canvas = canvasRef.current;
-      if (!canvas) {
+      const mountEl = mountRef.current;
+      const canvasEl = canvasRef.current;
+      if (!mountEl || !canvasEl) {
         return;
       }
 
@@ -107,7 +125,8 @@ export function Player({ engineUrl, romUrl }: PlayerProps) {
       }
 
       instanceRef.current = await sdk.load({
-        canvas,
+        attachTo: mountEl,
+        canvasEl,
         assets: { rom },
         persist: 'idbfs',
         storageNamespace: 'session-1',
@@ -125,7 +144,11 @@ export function Player({ engineUrl, romUrl }: PlayerProps) {
     };
   }, [engineUrl, romUrl]);
 
-  return <canvas ref={canvasRef} id="game-canvas" width={320} height={240} />;
+  return (
+    <div ref={mountRef} id="game-root">
+      <canvas ref={canvasRef} id="game-canvas" width={320} height={240} />
+    </div>
+  );
 }
 ```
 
@@ -177,8 +200,8 @@ if (instance.screenshot) {
 1. Fetch the engine manifest.
 2. Validate it with `validateManifest()` or `assertManifest()`.
 3. Show the asset requirements from `manifest.assets` in the file picker UI.
-4. Create the `<canvas>` and load the engine package.
-5. Pass the runtime assets, options, and persistence mode into `sdk.load()`.
+4. Create a container element plus the `<canvas>`, then load the engine package.
+5. Pass at least one mount target (`attachTo`, `canvasEl`, or both), plus runtime assets, options, and persistence mode into `sdk.load()`.
 6. Keep the returned instance in a ref or controller object and tear it down with `destroy()` when leaving the player.
 
 ## Notes

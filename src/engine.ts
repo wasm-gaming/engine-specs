@@ -13,9 +13,7 @@ export type AssetData = Uint8Array | ArrayBuffer | string;
 /** Where an engine may persist saves/SRAM. */
 export type PersistMode = 'idbfs' | 'opfs' | null;
 
-export interface EngineConfig {
-  /** Render target. The SDK is responsible for the `#canvas` id if the engine needs it. */
-  canvas: HTMLCanvasElement;
+type EngineConfigBase = {
   /** Runtime files keyed by `AssetSpec.key`. Required specs must be present. */
   assets: Record<string, AssetData>;
   /** Engine-specific settings, validated against `manifest.options`. */
@@ -32,7 +30,23 @@ export interface EngineConfig {
   /** Override artifact locations (e.g. host-fetched Release assets). */
   jsUrl?: string;
   wasmUrl?: string;
-}
+};
+
+export type EngineConfig = EngineConfigBase &
+  (
+    | {
+        /** Render target. The SDK is responsible for the `#canvas` id if the engine needs it. */
+        canvasEl: HTMLCanvasElement;
+        /** Optional container element for SDK-owned DOM when a canvas element is present. */
+        attachTo?: HTMLElement;
+      }
+    | {
+        /** Optional render target when the SDK primarily mounts into a container element. */
+        canvasEl?: HTMLCanvasElement;
+        /** Container element the SDK can use to mount engine-owned DOM. */
+        attachTo: HTMLElement;
+      }
+  );
 
 export type EngineEvent =
   | { type: 'ready' }
