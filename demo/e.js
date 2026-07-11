@@ -43,16 +43,26 @@ const cache = new Map();
 const namedTemplates = new Map();
 
 export const ejs = {
-  async loadTemplates(url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to load templates from ${url}: ${response.status}`);
-    }
+  // Each component file is <style> blocks plus raw template markup; the
+  // template is registered under the file's basename. The markup is kept as
+  // text (never parsed as DOM), so EJS tags survive intact anywhere.
+  async loadTemplates(...urls) {
+    await Promise.all(urls.map(async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to load template from ${url}: ${response.status}`);
+      }
 
-    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
-    doc.querySelectorAll('script[type="text/html"][name]').forEach((node) => {
-      namedTemplates.set(node.getAttribute('name'), node.textContent);
-    });
+      const name = new URL(url, document.baseURI).pathname
+        .split('/').pop().replace(/\.html$/, '');
+
+      const source = (await response.text()).replace(/<style[\s\S]*?<\/style>/g, (styleTag) => {
+        document.head.insertAdjacentHTML('beforeend', styleTag);
+        return '';
+      });
+
+      namedTemplates.set(name, source.trim());
+    }));
   },
 
   render(source, data) {

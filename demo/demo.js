@@ -1,7 +1,10 @@
 import { createDummySdk } from "./demo.sdk.js";
 import { ejs } from "./e.js";
 
-await ejs.loadTemplates(new URL("./demo.partials.html", import.meta.url));
+await ejs.loadTemplates(
+  new URL("./components/launcher.html", import.meta.url),
+  new URL("./components/sdk-info.html", import.meta.url),
+);
 
 const pageEl = document.querySelector("div.page");
 if (!(pageEl instanceof HTMLElement)) {

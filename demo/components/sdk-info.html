@@ -1,0 +1,33 @@
+<style>
+  .sdk h1 {
+    margin: 0 0 0.4rem;
+    font-size: 1.2rem;
+  }
+
+  .sdk p {
+    margin: 0;
+    color: var(--muted);
+  }
+
+  .row {
+    margin-top: 0.7rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .pill {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.84rem;
+  }
+</style>
+
+<h1><%= name %> (<%= id %>)</h1>
+<p><%= description %></p>
+<div class="row">
+  <span class="pill">Version <%= version %></span>
+  <span class="pill"><%= baseWidth %>x<%= baseHeight %></span>
+  <span class="pill">Asset key: <%= assetKey %></span>
+</div>
