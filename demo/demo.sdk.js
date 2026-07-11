@@ -32,7 +32,13 @@ export function createDummySdk() {
 	return {
 		manifest,
 		async load(config) {
-			const ctx = config.canvasEl.getContext("2d");
+			const ownsCanvas = !config.canvasEl;
+			const canvasEl = config.canvasEl ?? document.createElement("canvas");
+			if (ownsCanvas) {
+				config.attachTo.appendChild(canvasEl);
+			}
+
+			const ctx = canvasEl.getContext("2d");
 			if (!ctx) {
 				const error = new Error("Could not create 2D canvas context.");
 				config.onEvent?.({ type: "error", error });
@@ -46,11 +52,11 @@ export function createDummySdk() {
 
 			const fitCanvasToWindow = () => {
 				const dpr = window.devicePixelRatio || 1;
-				const rect = config.canvasEl.getBoundingClientRect();
+				const rect = canvasEl.getBoundingClientRect();
 				const width = Math.max(1, Math.floor(rect.width * dpr));
 				const height = Math.max(1, Math.floor(rect.height * dpr));
-				config.canvasEl.width = width;
-				config.canvasEl.height = height;
+				canvasEl.width = width;
+				canvasEl.height = height;
 			};
 
 			const render = (time) => {
@@ -58,8 +64,8 @@ export function createDummySdk() {
 					return;
 				}
 
-				const width = config.canvasEl.width;
-				const height = config.canvasEl.height;
+				const width = canvasEl.width;
+				const height = canvasEl.height;
 				const seconds = (time - t0) / 1000;
 				const fps = Math.max(1, 1000 / Math.max(1, time - lastFrame));
 				lastFrame = time;
@@ -80,19 +86,12 @@ export function createDummySdk() {
 					ctx.stroke();
 				}
 
-				const fileName = String(config.options?.fileName ?? "unknown");
-				const byteLength = Number(config.options?.byteLength ?? 0);
-
 				ctx.fillStyle = "#ffffff";
 				ctx.font = "600 28px 'Avenir Next', sans-serif";
 				ctx.fillText("Dummy Engine Placeholder", 26, 46);
 
-				ctx.font = "500 17px 'Avenir Next', sans-serif";
-				ctx.fillStyle = "#b0c6ff";
-				ctx.fillText(`Loaded: ${fileName}`, 26, 78);
-				ctx.fillText(`Size: ${byteLength.toLocaleString()} bytes`, 26, 104);
-
 				ctx.fillStyle = "#82f4c5";
+				ctx.font = "500 17px 'Avenir Next', sans-serif";
 				ctx.fillText(`FPS ${fps.toFixed(0)}`, width - 96, 34);
 
 				config.onEvent?.({ type: "frame", fps });
@@ -133,6 +132,9 @@ export function createDummySdk() {
 					running = false;
 					cancelAnimationFrame(raf);
 					window.removeEventListener("resize", fitCanvasToWindow);
+					if (ownsCanvas) {
+						canvasEl.remove();
+					}
 				},
 			};
 		},

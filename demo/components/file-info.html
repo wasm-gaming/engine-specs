@@ -1,0 +1,57 @@
+<h2><%= fileName %></h2>
+<dl>
+  <div class="row">
+    <dt>Size</dt>
+    <dd><%= size %></dd>
+  </div>
+  <% for (const sum of checksums) { %>
+  <div class="row">
+    <dt><%= sum.label %></dt>
+    <dd><%= sum.value %></dd>
+  </div>
+  <% } %>
+</dl>
+
+<style>
+  :host {
+    position: absolute;
+    top: 1rem;
+    left: 1rem;
+    max-width: min(600px, calc(100vw - 2rem));
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    padding: 0.85rem 1rem;
+    font-size: 0.85rem;
+  }
+
+  h2 {
+    margin: 0 0 0.55rem;
+    font-size: 0.98rem;
+    word-break: break-all;
+  }
+
+  dl {
+    margin: 0;
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 4.4rem 1fr;
+    gap: 0.6rem;
+  }
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    word-break: break-all;
+    user-select: all;
+  }
+</style>
