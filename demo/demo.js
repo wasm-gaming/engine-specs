@@ -1,6 +1,8 @@
 import { createDummySdk } from "./demo.sdk.js";
 import { ejs } from "./e.js";
 
+await ejs.loadTemplates(new URL("./demo.partials.html", import.meta.url));
+
 const pageEl = document.querySelector("div.page");
 if (!(pageEl instanceof HTMLElement)) {
   throw new Error("Demo page boot failed: missing required elements.");

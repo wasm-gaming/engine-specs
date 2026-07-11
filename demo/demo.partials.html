@@ -1,0 +1,24 @@
+<script type="text/html" name="launcher">
+  <form class="launcher">
+    <section class="sdk"></section>
+    <section class="drop">
+      <strong>Drop your ROM/asset file here</strong>
+      <p>or choose one from your computer</p>
+      <label class="picker">
+        Pick file
+        <input type="file" />
+      </label>
+    </section>
+    <div class="status"></div>
+  </form>
+</script>
+
+<script type="text/html" name="sdk-info">
+  <h1><%= name %> (<%= id %>)</h1>
+  <p><%= description %></p>
+  <div class="row">
+    <span class="pill">Version <%= version %></span>
+    <span class="pill"><%= baseWidth %>x<%= baseHeight %></span>
+    <span class="pill">Asset key: <%= assetKey %></span>
+  </div>
+</script>

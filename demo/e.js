@@ -40,8 +40,21 @@ function compile(source) {
 }
 
 const cache = new Map();
+const namedTemplates = new Map();
 
 export const ejs = {
+  async loadTemplates(url) {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to load templates from ${url}: ${response.status}`);
+    }
+
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    doc.querySelectorAll('script[type="text/html"][name]').forEach((node) => {
+      namedTemplates.set(node.getAttribute('name'), node.textContent);
+    });
+  },
+
   render(source, data) {
     let render = cache.get(source);
     if (!render) {
@@ -52,10 +65,10 @@ export const ejs = {
   },
 
   fromNamedTemplate(name, data) {
-    const node = document.querySelector(`script[type="text/html"][name="${name}"]`);
-    if (!node) {
+    const source = namedTemplates.get(name);
+    if (source == null) {
       throw new Error(`Missing template named ${name}`);
     }
-    return this.render(node.textContent, data);
+    return this.render(source, data);
   },
 };
