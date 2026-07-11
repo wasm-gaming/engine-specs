@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WASM Gaming Engine Specs Demo</title>
+    <link rel="stylesheet" href="./demo.css" />
+  </head>
+  <body>
+    <div class="page" id="page">
+      <main class="launcher" id="launcher">
+        <section class="sdk" id="sdk-info"></section>
+        <section class="drop" id="drop-area">
+          <strong>Drop your ROM/asset file here</strong>
+          <p>or choose one from your computer</p>
+          <label class="picker">
+            Pick file
+            <input id="file-input" type="file" />
+          </label>
+        </section>
+        <div class="status" id="status"></div>
+      </main>
+    </div>
+
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>

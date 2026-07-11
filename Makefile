@@ -17,3 +17,6 @@ publish: typecheck test
 
 publish-dry-run: typecheck test
 	npm publish --access public --dry-run
+
+preview:
+	python3 -m http.server 8020 --directory demo
