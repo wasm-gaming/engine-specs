@@ -2,7 +2,7 @@ import { createDummySdk } from "./demo.sdk.js";
 import { checksumAlgorithms, computeChecksums } from "./checksums.js";
 // import { $, $create, fetchEJS } from "./e.js";
 
-import { $, $create, Component79 } from "https://esm.sh/jq79"
+import { $, $create, Component79 } from "https://esm.sh/jq79@0.4.0"
 
 const [cLauncher, cSdkInfo, cFileInfo] = await Promise.all([
   Component79.fetch('./components/launcher.html'),

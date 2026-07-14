@@ -50,6 +50,9 @@ export function createDummySdk() {
 			let t0 = performance.now();
 			let lastFrame = t0;
 
+			const fontSize = 30;
+			let drops = [];
+
 			const fitCanvasToWindow = () => {
 				const dpr = window.devicePixelRatio || 1;
 				const rect = canvasEl.getBoundingClientRect();
@@ -66,33 +69,83 @@ export function createDummySdk() {
 
 				const width = canvasEl.width;
 				const height = canvasEl.height;
-				const seconds = (time - t0) / 1000;
+				const dt = Math.min((time - lastFrame) / 1000, 0.1);
 				const fps = Math.max(1, 1000 / Math.max(1, time - lastFrame));
 				lastFrame = time;
 
-				const grad = ctx.createLinearGradient(0, 0, width, height);
-				grad.addColorStop(0, "#0d1b2a");
-				grad.addColorStop(1, "#1b263b");
-				ctx.fillStyle = grad;
-				ctx.fillRect(0, 0, width, height);
+				const expectedColumns = Math.floor(width / fontSize);
+				const maxRows = Math.floor(height / fontSize) + 30;
 
-				for (let i = 0; i < 18; i += 1) {
-					const y = Math.sin(seconds * 1.6 + i * 0.4) * 24 + (i * height) / 18;
-					ctx.strokeStyle = `hsla(${150 + i * 7}, 75%, 55%, 0.25)`;
-					ctx.lineWidth = 2;
-					ctx.beginPath();
-					ctx.moveTo(0, y);
-					ctx.lineTo(width, y + Math.sin(seconds + i) * 18);
-					ctx.stroke();
+				if (drops.length !== expectedColumns) {
+					drops = [];
+					for (let x = 0; x < expectedColumns; x++) {
+						drops[x] = {
+							y: Math.random() * maxRows,
+							speed: Math.random() * 1.5 + 0.5,
+							opacity: Math.random() * 0.7 + 0.3,
+							length: Math.floor(Math.random() * 20 + 5),
+							chars: Array.from({ length: maxRows }, () => String.fromCharCode(0x30A0 + Math.random() * 96))
+						};
+					}
 				}
 
-				ctx.fillStyle = "#ffffff";
-				ctx.font = "600 28px 'Avenir Next', sans-serif";
-				ctx.fillText("Dummy Engine Placeholder", 26, 46);
+				// Dark background inside the canvas to contrast with the light UI components
+				// ctx.fillStyle = "#0f172a";
+				ctx.fillStyle = "#060910ff";
+				ctx.fillRect(0, 0, width, height);
 
-				ctx.fillStyle = "#82f4c5";
-				ctx.font = "500 17px 'Avenir Next', sans-serif";
-				ctx.fillText(`FPS ${fps.toFixed(0)}`, width - 96, 34);
+				ctx.font = "bold " + fontSize + "px 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans CJK JP', sans-serif";
+				ctx.textAlign = "center";
+
+				for (let x = 0; x < drops.length; x++) {
+					let drop = drops[x];
+
+					// Change characters dynamically
+					if (Math.random() > 0.4) {
+						let randIdx = Math.floor(Math.random() * drop.chars.length);
+						drop.chars[randIdx] = String.fromCharCode(0x30A0 + Math.random() * 96);
+					}
+
+					// Move the drop (slower)
+					drop.y += drop.speed * (dt * 12);
+
+					let startY = Math.floor(drop.y);
+
+					// Draw the column
+					for (let i = 0; i < drop.length; i++) {
+						let charY = startY - i;
+						if (charY < 0 || charY >= maxRows) continue;
+
+						let text = drop.chars[charY];
+						let alpha = drop.opacity * (1 - (i / drop.length));
+
+						if (i === 0) {
+							// Head of the drop (bright cyan-white)
+							ctx.fillStyle = `rgba(220, 255, 255, ${drop.opacity})`;
+						} else {
+							// Tail of the drop (bright colors for dark background)
+							const hue = ((time / 15) + (x * 10)) % 360;
+							ctx.fillStyle = `hsla(${hue}, 80%, 65%, ${alpha})`;
+						}
+
+						ctx.fillText(text, x * fontSize + fontSize / 2, charY * fontSize);
+					}
+
+					// Reset drop when fully off-screen
+					if ((drop.y - drop.length) * fontSize > height) {
+						drop.y = 0;
+						drop.speed = Math.random() * 1.5 + 0.5;
+						drop.opacity = Math.random() * 0.7 + 0.3;
+						drop.length = Math.floor(Math.random() * 20 + 5);
+					}
+				}
+
+				ctx.fillStyle = "rgba(255,255,255,0.85)";
+				ctx.fillRect(width - 210, 20, 180, 64);
+				ctx.fillStyle = "#0f172a";
+				ctx.font = "600 36px 'Outfit', system-ui, sans-serif";
+				ctx.textAlign = "left";
+				ctx.fillText(`FPS ${fps.toFixed(0)}`, width - 182, 65);
 
 				config.onEvent?.({ type: "frame", fps });
 				raf = requestAnimationFrame(render);
