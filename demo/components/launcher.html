@@ -1,25 +1,25 @@
 
 <form class="launcher">
   <section class="sdk"></section>
-  <section class="drop">
+  <section
+    :bind="{ class: dragging ? 'drop active' : 'drop' }"
+    @dragover.prevent="dragging = true"
+    @dragleave="dragging = false"
+    @drop.prevent="onDrop"
+  >
     <strong>Drop your ROM/asset file here</strong>
     <p>or choose one from your computer</p>
     <label class="picker">
       Pick file
-      <input type="file" />
+      <input type="file" @change="onPick" />
     </label>
   </section>
-  <div class="status"></div>
+  <div class="status">{{ status }}</div>
 </form>
 
-<script :fn="{ $, el, onFile }">
-  const dropAreaEl = $('.drop', el);
-  const statusEl = $('div.status', el);
-  const fileInputEl = $("input[type='file']", el);
-
-  const setStatus = (message) => {
-    statusEl.textContent = message;
-  };
+<script :setup="{ onFile }">
+  let status = "Ready";
+  let dragging = false;
 
   const onFileList = async (files) => {
     const file = files.item(0);
@@ -27,40 +27,26 @@
       return;
     }
     try {
-      setStatus(`Loading ${file.name}...`);
+      status = `Loading ${file.name}...`;
       await onFile(file);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setStatus(`Failed to load file: ${message}`);
+      status = `Failed to load file: ${message}`;
     }
   };
 
-  dropAreaEl.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    dropAreaEl.classList.add("active");
-  });
-
-  dropAreaEl.addEventListener("dragleave", () => {
-    dropAreaEl.classList.remove("active");
-  });
-
-  dropAreaEl.addEventListener("drop", async (event) => {
-    event.preventDefault();
-    dropAreaEl.classList.remove("active");
+  const onDrop = async (event) => {
+    dragging = false;
     if (event.dataTransfer?.files) {
       await onFileList(event.dataTransfer.files);
     }
-  });
+  };
 
-  fileInputEl.addEventListener("change", async () => {
-    if (fileInputEl.files) {
-      await onFileList(fileInputEl.files);
+  const onPick = async (event) => {
+    if (event.target.files) {
+      await onFileList(event.target.files);
     }
-  });
-
-  setStatus("Ready");
-
-  return { setStatus };
+  };
 </script>
 
 <style>

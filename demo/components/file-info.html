@@ -1,15 +1,13 @@
-<h2><%= fileName %></h2>
+<h2>{{ fileName }}</h2>
 <dl>
   <div class="row">
     <dt>Size</dt>
-    <dd><%= size %></dd>
+    <dd>{{ size }}</dd>
   </div>
-  <% for (const sum of checksums) { %>
-  <div class="row">
-    <dt><%= sum.label %></dt>
-    <dd><%= sum.value %></dd>
+  <div :each="checksum in checksums" class="row">
+    <dt>{{ checksum.label }}</dt>
+    <dd>{{ checksum.value }}</dd>
   </div>
-  <% } %>
 </dl>
 
 <style>

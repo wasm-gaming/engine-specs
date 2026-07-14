@@ -1,11 +1,13 @@
 import { createDummySdk } from "./demo.sdk.js";
 import { checksumAlgorithms, computeChecksums } from "./checksums.js";
-import { $, $create, fetchEJS } from "./e.js";
+// import { $, $create, fetchEJS } from "./e.js";
 
-const [launcher, sdkInfo, fileInfo] = await Promise.all([
-  fetchEJS('./components/launcher.html'),
-  fetchEJS('./components/sdk-info.html'),
-  fetchEJS('./components/file-info.html'),
+import { $, $create, Component79 } from "https://esm.sh/jq79"
+
+const [cLauncher, cSdkInfo, cFileInfo] = await Promise.all([
+  Component79.fetch('./components/launcher.html'),
+  Component79.fetch('./components/sdk-info.html'),
+  Component79.fetch('./components/file-info.html'),
 ]);
 
 const mainEl = $("main");
@@ -32,10 +34,12 @@ const bootWithFile = async (file) => {
     fileName: file.name,
     size: `${bytes.byteLength.toLocaleString()} bytes`,
   };
-  const fileInfoPlaceholder = await fileInfo.mountShadow(fileInfoEl, {
-    ...fileInfoProps,
-    checksums: checksumAlgorithms.map((label) => ({ label, value: "computing…" })),
-  });
+  const fileInfoPlaceholder = cFileInfo
+    .renderShadow({
+      ...fileInfoProps,
+      checksums: checksumAlgorithms.map((label) => ({ label, value: "computing…" })),
+    })
+    .mount(fileInfoEl);
 
   const instance = await sdk.load({
     attachTo: runtimeEl,
@@ -57,22 +61,29 @@ const bootWithFile = async (file) => {
 
   const checksums = await computeChecksums(bytes);
   fileInfoPlaceholder.destroy();
-  await fileInfo.mountShadow(fileInfoEl, { ...fileInfoProps, checksums });
+  
+  cFileInfo
+    .renderShadow({ ...fileInfoProps, checksums })
+    .mount(fileInfoEl);
 };
 
-await launcher.mount(mainEl, { onFile: bootWithFile });
+cLauncher
+  .render({ onFile: bootWithFile })
+  .mount(mainEl);
 
 const sdkInfoEl = mainEl.querySelector("section.sdk");
 if (!(sdkInfoEl instanceof HTMLElement)) {
   throw new Error("Demo page boot failed: missing required launcher elements.");
 }
 
-await sdkInfo.mountShadow(sdkInfoEl, {
-  name: sdk.manifest.name,
-  id: sdk.manifest.id,
-  description: sdk.manifest.description,
-  version: sdk.manifest.version,
-  baseWidth: sdk.manifest.video.baseWidth,
-  baseHeight: sdk.manifest.video.baseHeight,
-  assetKey: sdk.manifest.assets[0]?.key ?? "rom",
-});
+cSdkInfo
+  .renderShadow({
+    name: sdk.manifest.name,
+    id: sdk.manifest.id,
+    description: sdk.manifest.description,
+    version: sdk.manifest.version,
+    baseWidth: sdk.manifest.video.baseWidth,
+    baseHeight: sdk.manifest.video.baseHeight,
+    assetKey: sdk.manifest.assets[0]?.key ?? "rom",
+  })
+  .mount(sdkInfoEl);
