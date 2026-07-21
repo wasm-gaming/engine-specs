@@ -2,7 +2,7 @@ import { createDummySdk } from "./demo.sdk.js";
 import { checksumAlgorithms, computeChecksums } from "./checksums.js";
 // import { $, $create, fetchEJS } from "./e.js";
 
-import { $, $create, Component79 } from "https://esm.sh/jq79@0.4.0"
+import { $, $create, Component79 } from "https://jgermade.github.io/jq79/jq79.js"
 
 const [cLauncher, cSdkInfo, cFileInfo] = await Promise.all([
   Component79.fetch('./components/launcher.html'),
@@ -61,7 +61,7 @@ const bootWithFile = async (file) => {
 
   const checksums = await computeChecksums(bytes);
   fileInfoPlaceholder.destroy();
-  
+
   cFileInfo
     .renderShadow({ ...fileInfoProps, checksums })
     .mount(fileInfoEl);
