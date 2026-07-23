@@ -1,21 +1,26 @@
 <form class="launcher">
-  <section class="sdk"></section>
-  <section class="drop" :class.active="dragging"
-    @dragover.prevent="dragging = true"
-    @dragleave="dragging = false"
-    @drop.prevent="onDrop"
-  >
+  <section class="sdk">
+    <CSdkInfo ...sdkInfo />
+  </section>
+  <section class="drop" :class.active="dragging" @dragover.prevent="dragging = true" @dragleave="dragging = false"
+    @drop.prevent="onDrop">
     <strong>Drop your ROM/asset file here</strong>
-    <p>or choose one from your computer</p>
+    <p>{{ assetHint }}</p>
     <label class="picker">
       Pick file
-      <input type="file" @change="onPick" />
+      <input type="file" :accept="accept" @change="onPick" />
     </label>
   </section>
   <div class="status">{{ status }}</div>
 </form>
 
-<script :setup="{ onFile }">
+<script :setup="{
+  CSdkInfo,
+  sdkInfo,
+  onFile,
+  accept,
+  assetHint = 'or choose one from your computer',
+}">
   let status = "Ready";
   let dragging = false;
 
@@ -50,12 +55,12 @@
 <style>
   form.launcher {
     width: min(740px, 100%);
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.25);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--demo-panel-border, rgba(255, 255, 255, 0.4));
+    border-radius: var(--demo-panel-radius, 12px);
+    background: var(--demo-panel-bg, rgba(255, 255, 255, 0.25));
+    box-shadow: var(--demo-panel-shadow, inset 0 0 0 1px rgba(255, 255, 255, 0.5));
+    backdrop-filter: blur(var(--demo-panel-blur, 24px));
+    -webkit-backdrop-filter: blur(var(--demo-panel-blur, 24px));
     padding: 1.5rem;
     display: grid;
     gap: 1.25rem;
@@ -70,35 +75,35 @@
     right: 0;
     width: 60px;
     height: 60px;
-    background: linear-gradient(135deg, transparent 50%, var(--accent) 50%);
+    background: linear-gradient(135deg, transparent 50%, var(--demo-accent, #ff007f) 50%);
     opacity: 0.8;
   }
 
   .sdk {
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
+    border: 1px solid var(--demo-subpanel-border, rgba(255, 255, 255, 0.3));
+    border-radius: var(--demo-subpanel-radius, 8px);
     padding: 1.25rem;
-    background: rgba(255, 255, 255, 0.35);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    background: var(--demo-subpanel-bg, rgba(255, 255, 255, 0.35));
+    backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    box-shadow: var(--demo-subpanel-shadow, inset 0 0 0 1px rgba(255, 255, 255, 0.6));
   }
 
   .drop {
-    border: 2px dashed rgba(255, 255, 255, 0.6);
-    border-radius: 8px;
+    border: 2px dashed var(--demo-drop-border, rgba(255, 255, 255, 0.6));
+    border-radius: var(--demo-subpanel-radius, 8px);
     padding: 2.5rem 1.5rem;
     text-align: center;
     transition: all 250ms ease;
-    background: rgba(255, 255, 255, 0.15);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--demo-drop-bg, rgba(255, 255, 255, 0.15));
+    backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
   }
 
   .drop.active {
-    border-color: var(--accent2);
-    background: rgba(255, 255, 255, 0.4);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+    border-color: var(--demo-drop-active-border, var(--demo-accent2, #0284c7));
+    background: var(--demo-drop-active-bg, rgba(255, 255, 255, 0.4));
+    box-shadow: var(--demo-drop-active-shadow, inset 0 0 0 1px rgba(255, 255, 255, 0.8));
   }
 
   .drop strong {
@@ -108,23 +113,23 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text);
+    color: var(--demo-text, #0f172a);
   }
 
   .drop p {
     margin: 0.2rem 0;
-    color: var(--muted);
-    font-family: var(--font-mono);
+    color: var(--demo-muted, #475569);
+    font-family: var(--demo-font-mono, monospace);
     font-size: 0.9rem;
   }
 
   .picker {
     display: inline-flex;
     margin-top: 1.2rem;
-    background: rgba(255, 255, 255, 0.5);
-    color: var(--text);
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    border-radius: 8px;
+    background: var(--demo-picker-bg, rgba(255, 255, 255, 0.5));
+    color: var(--demo-picker-text, var(--demo-text, #0f172a));
+    border: 1px solid var(--demo-picker-border, rgba(255, 255, 255, 0.6));
+    border-radius: var(--demo-subpanel-radius, 8px);
     padding: 0.6rem 1.2rem;
     cursor: pointer;
     text-transform: uppercase;
@@ -132,13 +137,13 @@
     font-size: 0.9rem;
     letter-spacing: 0.05em;
     transition: all 0.2s;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
   }
 
   .picker:hover {
-    background: rgba(255, 255, 255, 0.8);
-    border-color: rgba(255, 255, 255, 0.9);
+    background: var(--demo-picker-hover-bg, rgba(255, 255, 255, 0.8));
+    border-color: var(--demo-picker-hover-border, rgba(255, 255, 255, 0.9));
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
   }
 
@@ -148,8 +153,8 @@
 
   .status {
     min-height: 1.2rem;
-    color: var(--text);
-    font-family: var(--font-mono);
+    color: var(--demo-text, #0f172a);
+    font-family: var(--demo-font-mono, monospace);
     font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;

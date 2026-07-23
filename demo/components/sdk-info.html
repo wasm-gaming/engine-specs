@@ -11,13 +11,13 @@
     margin: 0 0 0.4rem;
     font-size: 1.4rem;
     font-weight: 800;
-    color: var(--text);
+    color: var(--demo-text, var(--text, #0f172a));
     letter-spacing: 0.05em;
   }
 
   p {
     margin: 0;
-    color: var(--muted);
+    color: var(--demo-muted, var(--muted, #475569));
     font-size: 0.95rem;
   }
 
@@ -29,14 +29,14 @@
   }
 
   .pill {
-    border: 1px solid var(--accent);
+    border: 1px solid var(--demo-pill-border, var(--demo-accent, var(--accent, #ff007f)));
     border-radius: 2px;
     padding: 0.3rem 0.75rem;
-    font-family: var(--font-mono);
+    font-family: var(--demo-font-mono, var(--font-mono, monospace));
     font-size: 0.8rem;
-    color: var(--accent);
-    background: rgba(255, 0, 127, 0.1);
-    box-shadow: inset 0 0 5px rgba(255, 0, 127, 0.3);
+    color: var(--demo-pill-text, var(--demo-accent, var(--accent, #ff007f)));
+    background: var(--demo-pill-bg, rgba(255, 0, 127, 0.1));
+    box-shadow: var(--demo-pill-shadow, inset 0 0 5px rgba(255, 0, 127, 0.3));
     text-transform: uppercase;
   }
 </style>

@@ -1,13 +1,15 @@
-import { createDummySdk } from "./demo.sdk.js";
+import { getSdk } from "./sdk.js";
 import { checksumAlgorithms, computeChecksums } from "./checksums.js";
-// import { $, $create, fetchEJS } from "./e.js";
+import { $, $create, Component79 } from "https://jgermade.github.io/jq79/jq79.js";
 
-import { $, $create, Component79 } from "https://jgermade.github.io/jq79/jq79.js"
+// Fetch component HTML templates using import.meta.url for resilient subpath resolution
+const fetchComponent = (path) => Component79.fetch(new URL(path, import.meta.url).href);
 
-const [cLauncher, cSdkInfo, cFileInfo] = await Promise.all([
-  Component79.fetch('./components/launcher.html'),
-  Component79.fetch('./components/sdk-info.html'),
-  Component79.fetch('./components/file-info.html'),
+// Fetch all components at once to leverage http2 request multiplexing.
+const [CLauncher, CSdkInfo, CFileInfo] = await Promise.all([
+  fetchComponent("./components/launcher.html"),
+  fetchComponent("./components/sdk-info.html"),
+  fetchComponent("./components/file-info.html"),
 ]);
 
 const mainEl = $("main");
@@ -15,7 +17,18 @@ if (!(mainEl instanceof HTMLElement)) {
   throw new Error("Demo page boot failed: missing required elements.");
 }
 
-const sdk = createDummySdk();
+const sdk = await getSdk();
+
+if (sdk.manifest?.name) {
+  document.title = `${sdk.manifest.name} - Demo`;
+}
+
+// Compute asset accept filter and hint text from manifest
+const acceptedExts = sdk.manifest?.assets?.flatMap((a) => a.accept ?? []) ?? [];
+const acceptAttr = acceptedExts.length > 0 ? acceptedExts.join(",") : undefined;
+const assetHint = acceptedExts.length > 0
+  ? `Supported files: ${acceptedExts.join(", ")}`
+  : "or choose one from your computer";
 
 const bootWithFile = async (file) => {
   const bytes = await file.arrayBuffer();
@@ -34,17 +47,18 @@ const bootWithFile = async (file) => {
     fileName: file.name,
     size: `${bytes.byteLength.toLocaleString()} bytes`,
   };
-  const fileInfoPlaceholder = cFileInfo
+  const fileInfoPlaceholder = CFileInfo
     .renderShadow({
       ...fileInfoProps,
       checksums: checksumAlgorithms.map((label) => ({ label, value: "computing…" })),
     })
     .mount(fileInfoEl);
 
+  const assetKey = sdk.manifest?.assets?.[0]?.key ?? "rom";
   const instance = await sdk.load({
     attachTo: runtimeEl,
     assets: {
-      rom: bytes,
+      [assetKey]: bytes,
     },
     options: {
       fileName: file.name,
@@ -62,28 +76,25 @@ const bootWithFile = async (file) => {
   const checksums = await computeChecksums(bytes);
   fileInfoPlaceholder.destroy();
 
-  cFileInfo
+  CFileInfo
     .renderShadow({ ...fileInfoProps, checksums })
     .mount(fileInfoEl);
 };
 
-cLauncher
-  .render({ onFile: bootWithFile })
-  .mount(mainEl);
-
-const sdkInfoEl = mainEl.querySelector("section.sdk");
-if (!(sdkInfoEl instanceof HTMLElement)) {
-  throw new Error("Demo page boot failed: missing required launcher elements.");
-}
-
-cSdkInfo
-  .renderShadow({
-    name: sdk.manifest.name,
-    id: sdk.manifest.id,
-    description: sdk.manifest.description,
-    version: sdk.manifest.version,
-    baseWidth: sdk.manifest.video.baseWidth,
-    baseHeight: sdk.manifest.video.baseHeight,
-    assetKey: sdk.manifest.assets[0]?.key ?? "rom",
+CLauncher
+  .render({
+    CSdkInfo,
+    sdkInfo: {
+      name: sdk.manifest.name,
+      id: sdk.manifest.id,
+      description: sdk.manifest.description,
+      version: sdk.manifest.version,
+      baseWidth: sdk.manifest.video?.baseWidth ?? 320,
+      baseHeight: sdk.manifest.video?.baseHeight ?? 240,
+      assetKey: sdk.manifest.assets?.[0]?.key ?? "rom",
+    },
+    onFile: bootWithFile,
+    accept: acceptAttr,
+    assetHint,
   })
-  .mount(sdkInfoEl);
+  .mount(mainEl);

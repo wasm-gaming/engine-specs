@@ -1,21 +1,77 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
 :root {
-  --bg-a: #d8b4fe;
-  /* light purple */
-  --bg-b: #7dd3fc;
-  /* sky blue */
-  --panel: rgba(255, 255, 255, 0.85);
-  --line: rgba(0, 0, 0, 0.15);
-  --text: #0f172a;
-  --muted: #475569;
-  --accent: #ff007f;
-  --accent-glow: 0 0 15px rgba(255, 0, 127, 0.3), 0 0 30px rgba(255, 0, 127, 0.15);
-  --accent2: #0284c7;
-  --accent2-glow: 0 0 15px rgba(2, 132, 199, 0.3), 0 0 30px rgba(2, 132, 199, 0.15);
+  /* Colors & Palette */
+  --demo-bg-a: #d8b4fe;
+  --demo-bg-b: #7dd3fc;
+  --demo-bg-gradient: linear-gradient(145deg, var(--demo-bg-a) 0%, var(--demo-bg-b) 100%);
+  --demo-bg-radial-1: rgba(255, 0, 127, 0.08);
+  --demo-bg-radial-2: rgba(2, 132, 199, 0.12);
 
-  --font-sans: "Outfit", system-ui, -apple-system, sans-serif;
-  --font-mono: "Space Mono", monospace;
+  --demo-text: #0f172a;
+  --demo-muted: #475569;
+
+  --demo-accent: #ff007f;
+  --demo-accent-rgb: 255, 0, 127;
+  --demo-accent-glow: 0 0 15px rgba(var(--demo-accent-rgb), 0.3), 0 0 30px rgba(var(--demo-accent-rgb), 0.15);
+
+  --demo-accent2: #0284c7;
+  --demo-accent2-rgb: 2, 132, 199;
+  --demo-accent2-glow: 0 0 15px rgba(var(--demo-accent2-rgb), 0.3), 0 0 30px rgba(var(--demo-accent2-rgb), 0.15);
+
+  /* Glassmorphism & Panel System */
+  --demo-panel-bg: rgba(255, 255, 255, 0.25);
+  --demo-panel-border: rgba(255, 255, 255, 0.4);
+  --demo-panel-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --demo-panel-blur: 24px;
+  --demo-panel-radius: 12px;
+
+  --demo-subpanel-bg: rgba(255, 255, 255, 0.35);
+  --demo-subpanel-border: rgba(255, 255, 255, 0.3);
+  --demo-subpanel-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  --demo-subpanel-blur: 12px;
+  --demo-subpanel-radius: 8px;
+
+  /* Drop Zone */
+  --demo-drop-bg: rgba(255, 255, 255, 0.15);
+  --demo-drop-border: rgba(255, 255, 255, 0.6);
+  --demo-drop-active-bg: rgba(255, 255, 255, 0.4);
+  --demo-drop-active-border: var(--demo-accent2);
+  --demo-drop-active-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+
+  /* Button / File Picker */
+  --demo-picker-bg: rgba(255, 255, 255, 0.5);
+  --demo-picker-hover-bg: rgba(255, 255, 255, 0.8);
+  --demo-picker-border: rgba(255, 255, 255, 0.6);
+  --demo-picker-hover-border: rgba(255, 255, 255, 0.9);
+  --demo-picker-text: var(--demo-text);
+
+  /* Metadata Pills */
+  --demo-pill-bg: rgba(var(--demo-accent-rgb), 0.1);
+  --demo-pill-border: var(--demo-accent);
+  --demo-pill-text: var(--demo-accent);
+  --demo-pill-shadow: inset 0 0 5px rgba(var(--demo-accent-rgb), 0.3);
+
+  /* File Info Overlay */
+  --demo-file-info-bg: rgba(255, 255, 255, 0.7);
+  --demo-file-info-border: rgba(255, 255, 255, 0.8);
+  --demo-file-info-blur: 10px;
+
+  /* Typography & Fonts */
+  --demo-font-sans: "Outfit", system-ui, -apple-system, sans-serif;
+  --demo-font-mono: "Space Mono", monospace;
+
+  /* Legacy Aliases for Backward Compatibility */
+  --bg-a: var(--demo-bg-a);
+  --bg-b: var(--demo-bg-b);
+  --text: var(--demo-text);
+  --muted: var(--demo-muted);
+  --accent: var(--demo-accent);
+  --accent-glow: var(--demo-accent-glow);
+  --accent2: var(--demo-accent2);
+  --accent2-glow: var(--demo-accent2-glow);
+  --font-sans: var(--demo-font-sans);
+  --font-mono: var(--demo-font-mono);
 }
 
 * {
@@ -27,13 +83,13 @@ body {
   width: 100%;
   height: 100%;
   margin: 0;
-  color: var(--text);
+  color: var(--demo-text);
   background:
-    radial-gradient(circle at 15% 50%, rgba(255, 0, 127, 0.08), transparent 45%),
-    radial-gradient(circle at 85% 30%, rgba(2, 132, 199, 0.12), transparent 50%),
-    linear-gradient(145deg, var(--bg-a) 0%, var(--bg-b) 100%);
+    radial-gradient(circle at 15% 50%, var(--demo-bg-radial-1), transparent 45%),
+    radial-gradient(circle at 85% 30%, var(--demo-bg-radial-2), transparent 50%),
+    var(--demo-bg-gradient);
   background-attachment: fixed;
-  font-family: var(--font-sans);
+  font-family: var(--demo-font-sans);
   letter-spacing: 0.02em;
 }
 
@@ -69,13 +125,7 @@ main.running {
 .runtime {
   position: relative;
   aspect-ratio: 5 / 4;
-  /* border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 8px; */
   overflow: hidden;
-  /* background: rgba(255, 255, 255, 0.3);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px); */
-  /* box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5); */
 }
 
 .runtime canvas {
