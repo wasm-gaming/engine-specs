@@ -4,10 +4,15 @@
     @drop.prevent="onDrop">
     <strong>{{ prompt }}</strong>
     <p :class.file-selected="selectedName">{{ selectedName ? 'Selected: ' + selectedName : assetHint }}</p>
-    <label class="picker">
-        {{ selectedName ? 'Change File' : buttonText }}
-        <input type="file" :accept="accept" @change="onPick" />
-    </label>
+    <div class="picker-actions">
+        <label class="picker">
+            {{ selectedName ? 'Change File' : buttonText }}
+            <input type="file" :accept="accept" @change="onPick" />
+        </label>
+        <button type="button" :if="selectedName" class="remove-btn" @click.stop="onRemove">
+            Remove
+        </button>
+    </div>
 </section>
 
 <script :setup="{
@@ -30,7 +35,12 @@
   };
 
   const emitFile = (file) => {
-    if (!file) return;
+    if (!file) {
+      selectedName = "";
+      $emit("remove");
+      $emit("select", null);
+      return;
+    }
     selectedName = file.name;
     $emit("select", file);
   };
@@ -44,6 +54,12 @@
   const onPick = (event) => {
     const file = extractFile(event);
     if (file) emitFile(file);
+  };
+
+  const onRemove = () => {
+    selectedName = "";
+    $emit("remove");
+    $emit("select", null);
   };
 </script>
 
@@ -94,9 +110,15 @@
         font-weight: 600;
     }
 
+    .picker-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
     .picker {
         display: inline-flex;
-        margin-top: 1rem;
         background: var(--demo-picker-bg, rgba(255, 255, 255, 0.5));
         color: var(--demo-picker-text, var(--demo-text, #0f172a));
         border: 1px solid var(--demo-picker-border, rgba(255, 255, 255, 0.6));
@@ -120,5 +142,29 @@
 
     .picker input {
         display: none;
+    }
+
+    .remove-btn {
+        display: inline-flex;
+        align-items: center;
+        background: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        border-radius: var(--demo-subpanel-radius, 8px);
+        padding: 0.5rem 0.8rem;
+        cursor: pointer;
+        text-transform: uppercase;
+        font-weight: 600;
+        font-size: 0.85rem;
+        letter-spacing: 0.05em;
+        transition: all 0.2s;
+        backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+        -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    }
+
+    .remove-btn:hover {
+        background: rgba(239, 68, 68, 0.3);
+        border-color: rgba(239, 68, 68, 0.8);
+        color: #dc2626;
     }
 </style>

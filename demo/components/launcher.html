@@ -12,6 +12,7 @@
       :button-text="'Pick BIOS'"
       :file-name="biosFile?.name"
       @select="onBiosSelect"
+      @remove="onBiosRemove"
     />
     <CDropArea
       :prompt="'Drop ROM File'"
@@ -20,6 +21,7 @@
       :button-text="'Pick ROM'"
       :file-name="romFile?.name"
       @select="onRomSelect"
+      @remove="onRomRemove"
     />
   </div>
 
@@ -37,6 +39,8 @@
   onLaunchFiles,
   onSaveBios,
   onSaveRom,
+  onRemoveBios,
+  onRemoveRom,
   initialRomFile = null,
   initialBiosFile = null,
   romAccept,
@@ -44,7 +48,7 @@
   biosAccept,
   biosAssetHint = 'optional BIOS firmware file',
   requiresBIOS = false,
-  showBIOS = true,
+  showBIOS = false,
 }">
   let romFile = initialRomFile;
   let biosFile = initialBiosFile;
@@ -77,7 +81,10 @@
 
   const onRomSelect = (arg) => {
     const file = extractFile(arg);
-    if (!file) return;
+    if (!file) {
+      onRomRemove();
+      return;
+    }
     romFile = file;
     updateStatus();
     onSaveRom?.(file);
@@ -85,10 +92,25 @@
 
   const onBiosSelect = (arg) => {
     const file = extractFile(arg);
-    if (!file) return;
+    if (!file) {
+      onBiosRemove();
+      return;
+    }
     biosFile = file;
     updateStatus();
     onSaveBios?.(file);
+  };
+
+  const onRomRemove = () => {
+    romFile = null;
+    updateStatus();
+    onRemoveRom?.();
+  };
+
+  const onBiosRemove = () => {
+    biosFile = null;
+    updateStatus();
+    onRemoveBios?.();
   };
 
   const onLaunch = async () => {

@@ -21,7 +21,7 @@ export function createDummySdk() {
 				mountPath: "/bios.bin",
 				required: false,
 				accept: [".bin", ".rom", ".sys"],
-				description: "Optional system BIOS firmware file.",
+				description: "System BIOS firmware file.",
 			},
 		],
 		input: "keyboard-default",

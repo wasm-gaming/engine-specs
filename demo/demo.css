@@ -93,7 +93,7 @@ body {
   letter-spacing: 0.02em;
 }
 
-body::after {
+main:not(.running)::after {
   content: "";
   position: fixed;
   inset: 0;

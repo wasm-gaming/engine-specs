@@ -1,6 +1,6 @@
 import { getSdk } from "./sdk.js";
 import { checksumAlgorithms, computeChecksums } from "./checksums.js";
-import { loadStoredAsset, saveStoredAsset } from "./storage.js";
+import { loadStoredAsset, saveStoredAsset, clearStoredAsset } from "./storage.js";
 import { $, $create, Component79 } from "https://jgermade.github.io/jq79/jq79.js";
 
 // Safe URL parameter resolution from script URL & page URL
@@ -34,10 +34,9 @@ if (sdk.manifest?.name) {
 const romSpec = sdk.manifest?.assets?.find((a) => a.key === "rom") ?? sdk.manifest?.assets?.[0];
 const biosSpec = sdk.manifest?.assets?.find((a) => a.key === "bios") ?? sdk.manifest?.assets?.[1];
 
-// Determine BIOS visibility and requirement rules
-const hasBiosSpec = Boolean(biosSpec);
-const showBIOS = biosParam !== "false" && (hasBiosSpec || biosParam === "required" || biosParam === "true" || biosParam === "optional");
-const requiresBIOS = biosParam === "required" || (biosParam !== "optional" && Boolean(biosSpec?.required));
+// Determine BIOS visibility and requirement rules (Default: showBIOS = false)
+const showBIOS = biosParam === "true" || biosParam === "optional" || biosParam === "required";
+const requiresBIOS = biosParam === "required";
 
 // Load previously stored ROM & BIOS from OPFS if available
 const [storedRom, storedBios] = await Promise.all([
@@ -138,6 +137,8 @@ CLauncher
     initialBiosFile: storedBios,
     onSaveRom: (file) => saveStoredAsset("rom", file),
     onSaveBios: (file) => saveStoredAsset("bios", file),
+    onRemoveRom: () => clearStoredAsset("rom"),
+    onRemoveBios: () => clearStoredAsset("bios"),
     onLaunchFiles: bootWithFiles,
     romAccept,
     romAssetHint,
