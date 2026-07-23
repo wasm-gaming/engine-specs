@@ -14,7 +14,14 @@ export function createDummySdk() {
 				mountPath: "/rom.bin",
 				required: true,
 				accept: [".rom", ".bin", ".zip", ".dat"],
-				description: "Any file works in this demo; data is not executed.",
+				description: "Any game ROM file works in this demo.",
+			},
+			{
+				key: "bios",
+				mountPath: "/bios.bin",
+				required: false,
+				accept: [".bin", ".rom", ".sys"],
+				description: "Optional system BIOS firmware file.",
 			},
 		],
 		input: "keyboard-default",
@@ -43,6 +50,19 @@ export function createDummySdk() {
 				const error = new Error("Could not create 2D canvas context.");
 				config.onEvent?.({ type: "error", error });
 				throw error;
+			}
+
+			// Copy loaded ROM and BIOS assets to MEMFS (In-Memory Virtual File System)
+			const MEMFS = new Map();
+			if (config.assets) {
+				for (const assetSpec of manifest.assets) {
+					const data = config.assets[assetSpec.key];
+					if (data) {
+						const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+						MEMFS.set(assetSpec.mountPath, bytes);
+						console.log(`[MEMFS] Copied asset '${assetSpec.key}' (${bytes.byteLength} bytes) to ${assetSpec.mountPath}`);
+					}
+				}
 			}
 
 			let raf = 0;
@@ -90,7 +110,6 @@ export function createDummySdk() {
 				}
 
 				// Dark background inside the canvas to contrast with the light UI components
-				// ctx.fillStyle = "#0f172a";
 				ctx.fillStyle = "#060910ff";
 				ctx.fillRect(0, 0, width, height);
 
@@ -100,18 +119,15 @@ export function createDummySdk() {
 				for (let x = 0; x < drops.length; x++) {
 					let drop = drops[x];
 
-					// Change characters dynamically
 					if (Math.random() > 0.4) {
 						let randIdx = Math.floor(Math.random() * drop.chars.length);
 						drop.chars[randIdx] = String.fromCharCode(0x30A0 + Math.random() * 96);
 					}
 
-					// Move the drop (slower)
 					drop.y += drop.speed * (dt * 12);
 
 					let startY = Math.floor(drop.y);
 
-					// Draw the column
 					for (let i = 0; i < drop.length; i++) {
 						let charY = startY - i;
 						if (charY < 0 || charY >= maxRows) continue;
@@ -120,10 +136,8 @@ export function createDummySdk() {
 						let alpha = drop.opacity * (1 - (i / drop.length));
 
 						if (i === 0) {
-							// Head of the drop (bright cyan-white)
 							ctx.fillStyle = `rgba(220, 255, 255, ${drop.opacity})`;
 						} else {
-							// Tail of the drop (bright colors for dark background)
 							const hue = ((time / 15) + (x * 10)) % 360;
 							ctx.fillStyle = `hsla(${hue}, 80%, 65%, ${alpha})`;
 						}
@@ -131,7 +145,6 @@ export function createDummySdk() {
 						ctx.fillText(text, x * fontSize + fontSize / 2, charY * fontSize);
 					}
 
-					// Reset drop when fully off-screen
 					if ((drop.y - drop.length) * fontSize > height) {
 						drop.y = 0;
 						drop.speed = Math.random() * 1.5 + 0.5;

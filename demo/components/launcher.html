@@ -1,53 +1,107 @@
-<form class="launcher">
+<form class="launcher" @submit.prevent="onLaunch">
   <section class="sdk">
     <CSdkInfo ...sdkInfo />
   </section>
-  <section class="drop" :class.active="dragging" @dragover.prevent="dragging = true" @dragleave="dragging = false"
-    @drop.prevent="onDrop">
-    <strong>Drop your ROM/asset file here</strong>
-    <p>{{ assetHint }}</p>
-    <label class="picker">
-      Pick file
-      <input type="file" :accept="accept" @change="onPick" />
-    </label>
-  </section>
+
+  <div class="drop-grid" :class.single="!showBIOS">
+    <CDropArea
+      :if="showBIOS"
+      :prompt="requiresBIOS ? 'Drop BIOS File (Required)' : 'Drop BIOS File (Optional)'"
+      :asset-hint="biosAssetHint"
+      :accept="biosAccept"
+      :button-text="'Pick BIOS'"
+      :file-name="biosFile?.name"
+      @select="onBiosSelect"
+    />
+    <CDropArea
+      :prompt="'Drop ROM File'"
+      :asset-hint="romAssetHint"
+      :accept="romAccept"
+      :button-text="'Pick ROM'"
+      :file-name="romFile?.name"
+      @select="onRomSelect"
+    />
+  </div>
+
+  <button type="submit" class="launch-btn" :disabled="!canLaunch">
+    Launch Engine
+  </button>
+
   <div class="status">{{ status }}</div>
 </form>
 
 <script :setup="{
   CSdkInfo,
+  CDropArea,
   sdkInfo,
-  onFile,
-  accept,
-  assetHint = 'or choose one from your computer',
+  onLaunchFiles,
+  onSaveBios,
+  onSaveRom,
+  initialRomFile = null,
+  initialBiosFile = null,
+  romAccept,
+  romAssetHint = 'or choose ROM file from computer',
+  biosAccept,
+  biosAssetHint = 'optional BIOS firmware file',
+  requiresBIOS = false,
+  showBIOS = true,
 }">
-  let status = "Ready";
-  let dragging = false;
+  let romFile = initialRomFile;
+  let biosFile = initialBiosFile;
 
-  const onFileList = async (files) => {
-    const file = files.item(0);
-    if (!file) {
+  let canLaunch = Boolean(romFile && (!requiresBIOS || biosFile));
+  let status = "";
+
+  const updateStatus = () => {
+    canLaunch = Boolean(romFile && (!requiresBIOS || biosFile));
+    if (requiresBIOS && !biosFile && !romFile) {
+      status = "Ready - Please select ROM and BIOS files to launch.";
+    } else if (requiresBIOS && !biosFile) {
+      status = "BIOS file is required to launch.";
+    } else if (!romFile) {
+      status = "Ready - Please select a ROM file to launch.";
+    } else {
+      status = `Ready to launch! (${romFile.name}${biosFile ? ' + BIOS' : ''})`;
+    }
+  };
+
+  updateStatus();
+
+  const extractFile = (arg) => {
+    if (!arg) return null;
+    if (arg instanceof File) return arg;
+    if (arg.detail instanceof File) return arg.detail;
+    if (arg.detail) return extractFile(arg.detail);
+    return null;
+  };
+
+  const onRomSelect = (arg) => {
+    const file = extractFile(arg);
+    if (!file) return;
+    romFile = file;
+    updateStatus();
+    onSaveRom?.(file);
+  };
+
+  const onBiosSelect = (arg) => {
+    const file = extractFile(arg);
+    if (!file) return;
+    biosFile = file;
+    updateStatus();
+    onSaveBios?.(file);
+  };
+
+  const onLaunch = async () => {
+    if (!canLaunch) {
+      updateStatus();
       return;
     }
     try {
-      status = `Loading ${file.name}...`;
-      await onFile(file);
+      status = `Launching with ${romFile.name}...`;
+      await onLaunchFiles({ rom: romFile, bios: biosFile });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      status = `Failed to load file: ${message}`;
-    }
-  };
-
-  const onDrop = async (event) => {
-    dragging = false;
-    if (event.dataTransfer?.files) {
-      await onFileList(event.dataTransfer.files);
-    }
-  };
-
-  const onPick = async (event) => {
-    if (event.target.files) {
-      await onFileList(event.target.files);
+      status = `Failed to load engine: ${message}`;
     }
   };
 </script>
@@ -89,66 +143,47 @@
     box-shadow: var(--demo-subpanel-shadow, inset 0 0 0 1px rgba(255, 255, 255, 0.6));
   }
 
-  .drop {
-    border: 2px dashed var(--demo-drop-border, rgba(255, 255, 255, 0.6));
-    border-radius: var(--demo-subpanel-radius, 8px);
-    padding: 2.5rem 1.5rem;
-    text-align: center;
-    transition: all 250ms ease;
-    background: var(--demo-drop-bg, rgba(255, 255, 255, 0.15));
-    backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
-    -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+  .drop-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
   }
 
-  .drop.active {
-    border-color: var(--demo-drop-active-border, var(--demo-accent2, #0284c7));
-    background: var(--demo-drop-active-bg, rgba(255, 255, 255, 0.4));
-    box-shadow: var(--demo-drop-active-shadow, inset 0 0 0 1px rgba(255, 255, 255, 0.8));
+  .drop-grid.single {
+    grid-template-columns: 1fr;
   }
 
-  .drop strong {
-    display: block;
-    margin-bottom: 0.5rem;
-    font-size: 1.2rem;
-    font-weight: 600;
+  .launch-btn {
+    width: 100%;
+    padding: 0.9rem 1.5rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-family: var(--demo-font-sans, sans-serif);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--demo-text, #0f172a);
-  }
-
-  .drop p {
-    margin: 0.2rem 0;
-    color: var(--demo-muted, #475569);
-    font-family: var(--demo-font-mono, monospace);
-    font-size: 0.9rem;
-  }
-
-  .picker {
-    display: inline-flex;
-    margin-top: 1.2rem;
-    background: var(--demo-picker-bg, rgba(255, 255, 255, 0.5));
-    color: var(--demo-picker-text, var(--demo-text, #0f172a));
-    border: 1px solid var(--demo-picker-border, rgba(255, 255, 255, 0.6));
+    letter-spacing: 0.08em;
+    color: var(--demo-launch-text, #ffffff);
+    background: var(--demo-launch-bg, var(--demo-accent, #ff007f));
+    border: none;
     border-radius: var(--demo-subpanel-radius, 8px);
-    padding: 0.6rem 1.2rem;
     cursor: pointer;
-    text-transform: uppercase;
-    font-weight: 600;
-    font-size: 0.9rem;
-    letter-spacing: 0.05em;
-    transition: all 0.2s;
-    backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
-    -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    transition: all 0.2s ease;
+    box-shadow: var(--demo-accent-glow, 0 0 15px rgba(255, 0, 127, 0.3));
   }
 
-  .picker:hover {
-    background: var(--demo-picker-hover-bg, rgba(255, 255, 255, 0.8));
-    border-color: var(--demo-picker-hover-border, rgba(255, 255, 255, 0.9));
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  .launch-btn:hover:not(:disabled) {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
   }
 
-  .picker input {
-    display: none;
+  .launch-btn:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  .launch-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+    background: var(--demo-muted, #475569);
   }
 
   .status {

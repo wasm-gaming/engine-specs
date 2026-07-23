@@ -1,0 +1,124 @@
+<section class="drop" :class.active="dragging" :class.selected="selectedName"
+    @dragover.prevent="dragging = true"
+    @dragleave="dragging = false"
+    @drop.prevent="onDrop">
+    <strong>{{ prompt }}</strong>
+    <p :class.file-selected="selectedName">{{ selectedName ? 'Selected: ' + selectedName : assetHint }}</p>
+    <label class="picker">
+        {{ selectedName ? 'Change File' : buttonText }}
+        <input type="file" :accept="accept" @change="onPick" />
+    </label>
+</section>
+
+<script :setup="{
+  prompt,
+  assetHint = 'or choose one from your computer',
+  accept,
+  buttonText = 'Pick file',
+  fileName = '',
+}">
+  let dragging = false;
+  let selectedName = fileName || "";
+
+  const extractFile = (arg) => {
+    if (!arg) return null;
+    if (arg instanceof File) return arg;
+    if (arg.detail instanceof File) return arg.detail;
+    if (arg.target?.files?.item(0)) return arg.target.files.item(0);
+    if (arg.dataTransfer?.files?.item(0)) return arg.dataTransfer.files.item(0);
+    return null;
+  };
+
+  const emitFile = (file) => {
+    if (!file) return;
+    selectedName = file.name;
+    $emit("select", file);
+  };
+
+  const onDrop = (event) => {
+    dragging = false;
+    const file = extractFile(event);
+    if (file) emitFile(file);
+  };
+
+  const onPick = (event) => {
+    const file = extractFile(event);
+    if (file) emitFile(file);
+  };
+</script>
+
+<style>
+    .drop {
+        border: 2px dashed var(--demo-drop-border, rgba(255, 255, 255, 0.6));
+        border-radius: var(--demo-subpanel-radius, 8px);
+        padding: 2rem 1.25rem;
+        text-align: center;
+        transition: all 250ms ease;
+        background: var(--demo-drop-bg, rgba(255, 255, 255, 0.15));
+        backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+        -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    }
+
+    .drop.active {
+        border-color: var(--demo-drop-active-border, var(--demo-accent2, #0284c7));
+        background: var(--demo-drop-active-bg, rgba(255, 255, 255, 0.4));
+        box-shadow: var(--demo-drop-active-shadow, inset 0 0 0 1px rgba(255, 255, 255, 0.8));
+    }
+
+    .drop.selected {
+        border-style: solid;
+        border-color: var(--demo-accent2, #0284c7);
+        background: var(--demo-subpanel-bg, rgba(255, 255, 255, 0.35));
+    }
+
+    .drop strong {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--demo-text, #0f172a);
+    }
+
+    .drop p {
+        margin: 0.2rem 0;
+        color: var(--demo-muted, #475569);
+        font-family: var(--demo-font-mono, monospace);
+        font-size: 0.85rem;
+        word-break: break-all;
+    }
+
+    .drop p.file-selected {
+        color: var(--demo-text, #0f172a);
+        font-weight: 600;
+    }
+
+    .picker {
+        display: inline-flex;
+        margin-top: 1rem;
+        background: var(--demo-picker-bg, rgba(255, 255, 255, 0.5));
+        color: var(--demo-picker-text, var(--demo-text, #0f172a));
+        border: 1px solid var(--demo-picker-border, rgba(255, 255, 255, 0.6));
+        border-radius: var(--demo-subpanel-radius, 8px);
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        text-transform: uppercase;
+        font-weight: 600;
+        font-size: 0.85rem;
+        letter-spacing: 0.05em;
+        transition: all 0.2s;
+        backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+        -webkit-backdrop-filter: blur(var(--demo-subpanel-blur, 12px));
+    }
+
+    .picker:hover {
+        background: var(--demo-picker-hover-bg, rgba(255, 255, 255, 0.8));
+        border-color: var(--demo-picker-hover-border, rgba(255, 255, 255, 0.9));
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    }
+
+    .picker input {
+        display: none;
+    }
+</style>

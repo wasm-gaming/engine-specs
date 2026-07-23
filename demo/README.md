@@ -55,6 +55,10 @@ To apply your custom branding, override any of the `:root` variables in `demo.cs
   --demo-picker-bg: rgba(255, 255, 255, 0.1);
   --demo-picker-hover-bg: rgba(255, 255, 255, 0.2);
   --demo-picker-text: #ffffff;
+
+  /* Launch button */
+  --demo-launch-bg: var(--demo-accent);
+  --demo-launch-text: #ffffff;
 }
 ```
 
@@ -80,6 +84,8 @@ To apply your custom branding, override any of the `:root` variables in `demo.cs
 | `--demo-picker-bg` | Pick File button background | `rgba(255, 255, 255, 0.5)` |
 | `--demo-pill-bg` | Metadata badge background | `rgba(var(--demo-accent-rgb), 0.1)` |
 | `--demo-file-info-bg` | Canvas overlay panel background | `rgba(255, 255, 255, 0.7)` |
+| `--demo-launch-bg` | Launch button background color | `var(--demo-accent)` |
+| `--demo-launch-text` | Launch button text color | `#ffffff` |
 | `--demo-font-sans` | Primary sans-serif font family | `"Outfit", system-ui, sans-serif` |
 | `--demo-font-mono` | Monospace code font family | `"Space Mono", monospace` |
 
@@ -87,8 +93,10 @@ To apply your custom branding, override any of the `:root` variables in `demo.cs
 
 ## 🛠 Features
 
+- **OPFS Asset Persistence**: Automatically stores selected ROM and BIOS files in the Origin Private File System (`navigator.storage.getDirectory()`), restoring them automatically across page reloads.
+- **Split Asset Drop Zones**: Independent drop/picker areas for optional **BIOS** firmware and game **ROM** assets.
+- **Dedicated Launch Trigger**: Prominent launch button that activates once required game assets are selected.
 - **Automated Manifest Integration**: Page title, SDK info, asset key mapping, and file type (`accept`) filters are automatically loaded from `sdk.manifest`.
-- **ROM Drag & Drop**: Interactive drop zone with file picker fallback.
 - **Checksum Calculation**: Computes MD5, SHA-1, and SHA-256 hashes of loaded files asynchronously in the background.
 - **Shadow DOM Isolation**: UI components are isolated using Shadow DOM to prevent style leakage.
 - **Subpath Hosting Ready**: Uses `import.meta.url` for component templates to work seamlessly on subpaths (e.g. GitHub Pages).
