@@ -1,8 +1,15 @@
-import { getSdk as getLocalSdk } from "./sdk.js";
 import { checksumAlgorithms, computeChecksums } from "./checksums.js";
 import { loadStoredAsset, saveStoredAsset, clearStoredAsset } from "./storage.js";
 
 let isInitialized = false;
+let currentConfig = {};
+let currentInstance = null;
+
+const listeners = new Map();
+const loadedFiles = {
+  rom: null,
+  bios: null,
+};
 
 const DEFAULT_MESSAGES = {
   // Page / Document
@@ -53,22 +60,6 @@ async function toArrayBuffer(input) {
   if (typeof input.arrayBuffer === "function") return await input.arrayBuffer();
   if (input.detail) return await toArrayBuffer(input.detail);
   throw new TypeError("Provided input is not a File, Blob, or ArrayBuffer.");
-}
-
-async function resolveSdk(sdkOption) {
-  if (typeof sdkOption === "function") {
-    return await sdkOption();
-  }
-  if (sdkOption && typeof sdkOption.load === "function") {
-    return sdkOption;
-  }
-  if (sdkOption && typeof sdkOption.getSdk === "function") {
-    return await sdkOption.getSdk();
-  }
-  if (sdkOption && sdkOption.default) {
-    return await resolveSdk(sdkOption.default);
-  }
-  return await getLocalSdk();
 }
 
 function resolveBiosConfig(biosOption) {
@@ -150,308 +141,457 @@ function getDefaultOptionGroups() {
 }
 
 const demo = {
-  async init(config = {}) {
-    isInitialized = true;
-
-    let jq;
-    if (config.jq79) {
-      jq = config.jq79;
-    } else {
-      jq = await import("https://jgermade.github.io/jq79/jq79.js");
+  on(event, fn) {
+    if (!listeners.has(event)) {
+      listeners.set(event, []);
     }
+    listeners.get(event).push(fn);
+    return demo;
+  },
 
-    const { $, $create, Component79 } = jq;
-    const fetchComponent = (path) => Component79.fetch(new URL(path, import.meta.url).href);
+  off(event, fn) {
+    if (!listeners.has(event)) return demo;
+    const list = listeners.get(event).filter((cb) => cb !== fn);
+    listeners.set(event, list);
+    return demo;
+  },
 
-    // Fetch all components at once to leverage http2 request multiplexing.
-    const [CLauncher, CDropArea, CSdkInfo, CEscMenu] = await Promise.all([
-      fetchComponent("./components/launcher.html"),
-      fetchComponent("./components/drop-area.html"),
-      fetchComponent("./components/sdk-info.html"),
-      fetchComponent("./components/esc-menu.html"),
-    ]);
-
-    // Resolve target element for mounting launcher
-    let mainEl;
-    if (config.target instanceof HTMLElement) {
-      mainEl = config.target;
-    } else if (typeof config.target === "string") {
-      mainEl = document.querySelector(config.target);
-    } else {
-      mainEl = $("main") || document.body;
-    }
-
-    if (!mainEl) {
-      throw new Error("Demo page boot failed: missing target element.");
-    }
-
-    const sdk = await resolveSdk(config.sdk);
-    const messages = { ...DEFAULT_MESSAGES, ...config.messages };
-    const escMenuConfig = config.escMenu || {};
-
-    if (typeof document !== "undefined") {
-      if (config.messages?.title) {
-        document.title = config.messages.title;
-      } else if (sdk.manifest?.name) {
-        document.title = `${sdk.manifest.name} - Demo`;
+  async emit(event, payload) {
+    if (!listeners.has(event)) return [];
+    const callbacks = listeners.get(event);
+    const results = [];
+    for (const cb of callbacks) {
+      try {
+        const res = await cb(payload);
+        results.push(res);
+      } catch (err) {
+        console.error(`[Demo] Event '${event}' handler error:`, err);
       }
     }
+    return results;
+  },
 
-    // Compute asset accept filters and hints from manifest
-    const romSpec = sdk.manifest?.assets?.find((a) => a.key === "rom") ?? sdk.manifest?.assets?.[0];
-    const biosSpec = sdk.manifest?.assets?.find((a) => a.key === "bios") ?? sdk.manifest?.assets?.[1];
-
-    const { showBIOS, requiresBIOS } = resolveBiosConfig(config.bios);
-
-    // Load stored ROM & BIOS from OPFS if available
-    const [storedRom, storedBios] = await Promise.all([
-      loadStoredAsset("rom"),
-      showBIOS ? loadStoredAsset("bios") : null,
-    ]);
-
-    const romAccept = romSpec?.accept?.join(",");
-    const romAssetHint = config.messages?.romAssetHint ?? (romSpec?.accept ? `Supported: ${romSpec.accept.join(", ")}` : messages.romAssetHint);
-
-    const biosAccept = biosSpec?.accept?.join(",");
-    const biosAssetHint = config.messages?.biosAssetHint ?? (biosSpec?.description ?? (biosSpec?.accept ? `Supported: ${biosSpec.accept.join(", ")}` : (requiresBIOS ? messages.biosAssetHintRequired : messages.biosAssetHintOptional)));
-
-    let currentLauncherMount = null;
-
-    const renderLauncher = () => {
-      if (mainEl.classList?.remove) {
-        mainEl.classList.remove("running");
-      }
-      if (mainEl.replaceChildren) {
-        mainEl.replaceChildren();
-      }
-
-      currentLauncherMount = CLauncher
-        .render({
-          CSdkInfo,
-          CDropArea,
-          sdkInfo: {
-            name: sdk.manifest.name,
-            id: sdk.manifest.id,
-            description: sdk.manifest.description,
-            version: sdk.manifest.version,
-            baseWidth: sdk.manifest.video?.baseWidth ?? 320,
-            baseHeight: sdk.manifest.video?.baseHeight ?? 240,
-            assetKey: romSpec?.key ?? "rom",
-          },
-          initialRomFile: storedRom,
-          initialBiosFile: storedBios,
-          onSaveRom: (file) => saveStoredAsset("rom", file),
-          onSaveBios: (file) => saveStoredAsset("bios", file),
-          onRemoveRom: () => clearStoredAsset("rom"),
-          onRemoveBios: () => clearStoredAsset("bios"),
-          onLaunchFiles: bootWithFiles,
-          romAccept,
-          romAssetHint,
-          biosAccept,
-          biosAssetHint,
-          requiresBIOS,
-          showBIOS,
-          messages,
-        })
-        .mount(mainEl);
-    };
-
-    const bootWithFiles = async ({ rom, bios }) => {
-      const romBytes = await toArrayBuffer(rom);
-      const biosBytes = await toArrayBuffer(bios);
-
-      mainEl.classList?.add("running");
-
-      const runtimeEl = $create("div", {
-        className: "runtime",
-      });
-
-      mainEl.replaceChildren(runtimeEl);
-
-      const primaryFile = rom || bios;
-      console.log(`[Demo] Loaded file: ${primaryFile.name} (${primaryFile.size.toLocaleString()} bytes)`);
-
+  async loadToMEMFS(key, target) {
+    if (!key) {
       const assets = {};
-      if (romBytes && romSpec) {
-        assets[romSpec.key] = romBytes;
+      for (const [k, file] of Object.entries(loadedFiles)) {
+        if (file) {
+          assets[k] = await toArrayBuffer(file);
+        }
       }
-      if (biosBytes && biosSpec) {
-        assets[biosSpec.key] = biosBytes;
+      return assets;
+    }
+    const file = loadedFiles[key];
+    if (!file) return null;
+    const buffer = await toArrayBuffer(file);
+    if (target && typeof target === "object") {
+      if (typeof target.set === "function") {
+        target.set(key, buffer);
+      } else if (typeof target.FS?.writeFile === "function") {
+        target.FS.writeFile(key, new Uint8Array(buffer));
       }
-      if (Object.keys(assets).length === 0 && romBytes) {
-        assets.rom = romBytes;
+    }
+    return buffer;
+  },
+
+  getFile(key) {
+    if (!key) return loadedFiles;
+    return loadedFiles[key] || null;
+  },
+
+  hasFile(key) {
+    if (!key) return Boolean(loadedFiles.rom || loadedFiles.bios);
+    return Boolean(loadedFiles[key]);
+  },
+
+  isLoaded(key) {
+    return demo.hasFile(key);
+  },
+
+  bindInstance(instance) {
+    currentInstance = instance;
+    return demo;
+  },
+
+  setInstance(instance) {
+    return demo.bindInstance(instance);
+  },
+
+  init(config = {}) {
+    isInitialized = true;
+    currentConfig = config;
+
+    const boot = async () => {
+      if (typeof window === "undefined" && !config.target) {
+        return;
+      }
+      let jq;
+      if (config.jq79) {
+        jq = config.jq79;
+      } else {
+        jq = await import("https://jgermade.github.io/jq79/jq79.js");
       }
 
-      const instance = await sdk.load({
-        attachTo: runtimeEl,
-        assets,
-        options: {
-          fileName: primaryFile.name,
-          byteLength: primaryFile.size,
-        },
-        onEvent(event) {
-          if (event.type === "error") {
-            console.error(event.error);
-          }
-        },
+      const { $, $create, Component79 } = jq;
+      const fetchComponent = (path) => Component79.fetch(new URL(path, import.meta.url).href);
+
+      // Fetch components
+      const [CLauncher, CDropArea, CSdkInfo, CEscMenu] = await Promise.all([
+        fetchComponent("./components/launcher.html"),
+        fetchComponent("./components/drop-area.html"),
+        fetchComponent("./components/sdk-info.html"),
+        fetchComponent("./components/esc-menu.html"),
+      ]);
+
+      let mainEl;
+      if (config.target instanceof HTMLElement) {
+        mainEl = config.target;
+      } else if (typeof config.target === "string") {
+        mainEl = document.querySelector(config.target);
+      } else {
+        mainEl = $("main") || document.body;
+      }
+
+      if (!mainEl) {
+        throw new Error("Demo page boot failed: missing target element.");
+      }
+
+      const messages = { ...DEFAULT_MESSAGES, ...config.messages };
+      const escMenuConfig = config.escMenu || {};
+
+      if (typeof document !== "undefined") {
+        if (config.messages?.title) {
+          document.title = config.messages.title;
+        } else if (config.manifest?.name) {
+          document.title = `${config.manifest.name} - Demo`;
+        } else if (config.sdkInfo?.name) {
+          document.title = `${config.sdkInfo.name} - Demo`;
+        }
+      }
+
+      const { showBIOS, requiresBIOS } = resolveBiosConfig(config.bios);
+
+      const [storedRom, storedBios] = await Promise.all([
+        loadStoredAsset("rom"),
+        showBIOS ? loadStoredAsset("bios") : null,
+      ]);
+
+      loadedFiles.rom = storedRom;
+      loadedFiles.bios = storedBios;
+
+      const manifestAssets = config.manifest?.assets || config.sdkInfo?.assets;
+      const romSpec = manifestAssets?.find((a) => a.key === "rom") ?? manifestAssets?.[0];
+      const biosSpec = manifestAssets?.find((a) => a.key === "bios") ?? manifestAssets?.[1];
+
+      const romAccept = config.romAccept ?? config.accept?.rom ?? (romSpec?.accept ? romSpec.accept.join(",") : ".rom,.bin,.zip,.dat");
+      const romAssetHint = config.messages?.romAssetHint ?? (romSpec?.accept ? `Supported: ${romSpec.accept.join(", ")}` : messages.romAssetHint);
+
+      const biosAccept = config.biosAccept ?? config.accept?.bios ?? (biosSpec?.accept ? biosSpec.accept.join(",") : ".bin,.rom,.sys");
+      const biosAssetHint = config.messages?.biosAssetHint ?? (biosSpec?.description ?? (biosSpec?.accept ? `Supported: ${biosSpec.accept.join(", ")}` : (requiresBIOS ? messages.biosAssetHintRequired : messages.biosAssetHintOptional)));
+
+      const sdkInfo = config.sdkInfo || (config.manifest ? {
+        name: config.manifest.name,
+        id: config.manifest.id,
+        description: config.manifest.description,
+        version: config.manifest.version,
+        baseWidth: config.manifest.video?.baseWidth ?? 320,
+        baseHeight: config.manifest.video?.baseHeight ?? 240,
+        assetKey: romSpec?.key ?? "rom",
+      } : {
+        name: messages.title || "WASM Gaming Engine Demo",
+        id: "engine-demo",
+        description: "Standalone Web Interface",
+        version: "1.0.0",
+        baseWidth: 320,
+        baseHeight: 240,
+        assetKey: "rom",
       });
 
-      instance.start();
+      const handleSaveRom = (file) => {
+        loadedFiles.rom = file;
+        saveStoredAsset("rom", file);
+        const payload = { file, key: "rom", type: "rom", action: "save" };
+        demo.emit("rom:save", payload);
+        demo.emit("save:rom", payload);
+        demo.emit("rom:select", payload);
+        demo.emit("file", payload);
+      };
 
-      // Compute and log checksums to console asynchronously
-      computeChecksums(romBytes || biosBytes).then((checksums) => {
-        const checksumMap = checksums.reduce((acc, c) => ({ ...acc, [c.label]: c.value }), {});
-        console.log(`[Demo] Checksums for ${primaryFile.name}:`, checksumMap);
-      });
+      const handleRemoveRom = () => {
+        loadedFiles.rom = null;
+        clearStoredAsset("rom");
+        const payload = { file: null, key: "rom", type: "rom", action: "remove" };
+        demo.emit("rom:remove", payload);
+        demo.emit("remove:rom", payload);
+        demo.emit("rom:clear", payload);
+        demo.emit("file", payload);
+      };
 
-      // Customizable In-Game ESC Menu integration
-      if (escMenuConfig.enabled !== false) {
-        let isMenuOpen = false;
-        let escMenuMount = null;
+      const handleSaveBios = (file) => {
+        loadedFiles.bios = file;
+        saveStoredAsset("bios", file);
+        const payload = { file, key: "bios", type: "bios", action: "save" };
+        demo.emit("bios:save", payload);
+        demo.emit("save:bios", payload);
+        demo.emit("bios:select", payload);
+        demo.emit("file", payload);
+      };
 
-        // Create a dedicated container div for ESC menu shadow root so runtimeEl light DOM children (canvasEl) are never hidden
-        const escContainer = $create("div", { className: "esc-container" });
-        runtimeEl.appendChild(escContainer);
+      const handleRemoveBios = () => {
+        loadedFiles.bios = null;
+        clearStoredAsset("bios");
+        const payload = { file: null, key: "bios", type: "bios", action: "remove" };
+        demo.emit("bios:remove", payload);
+        demo.emit("remove:bios", payload);
+        demo.emit("bios:clear", payload);
+        demo.emit("file", payload);
+      };
 
-        const optionGroups = escMenuConfig.optionGroups ||
-          (escMenuConfig.options ? [{ id: "settings", label: "Settings", options: escMenuConfig.options }] : getDefaultOptionGroups());
+      let currentLauncherMount = null;
 
-        const exitToLauncher = () => {
-          if (typeof window !== "undefined") {
-            window.removeEventListener("keydown", handleKeyDown);
-          }
-          if (escMenuMount) {
-            escMenuMount.destroy();
-            escMenuMount = null;
-          }
-          if (typeof instance.destroy === "function") {
-            instance.destroy();
-          }
-          renderLauncher();
+      const renderLauncher = () => {
+        currentInstance = null;
+        if (mainEl.classList?.remove) {
+          mainEl.classList.remove("running");
+        }
+        if (mainEl.replaceChildren) {
+          mainEl.replaceChildren();
+        }
+
+        currentLauncherMount = CLauncher
+          .render({
+            CSdkInfo,
+            CDropArea,
+            sdkInfo,
+            initialRomFile: loadedFiles.rom,
+            initialBiosFile: loadedFiles.bios,
+            romAccept,
+            romAssetHint,
+            biosAccept,
+            biosAssetHint,
+            requiresBIOS,
+            showBIOS,
+            messages,
+          })
+          .on("save:rom", handleSaveRom)
+          .on("remove:rom", handleRemoveRom)
+          .on("save:bios", handleSaveBios)
+          .on("remove:bios", handleRemoveBios)
+          .on("launch", (payload) => bootWithFiles(payload))
+          .mount(mainEl);
+      };
+
+      const bootWithFiles = async ({ rom, bios }) => {
+        loadedFiles.rom = rom;
+        loadedFiles.bios = bios;
+
+        mainEl.classList?.add("running");
+
+        const runtimeEl = $create("div", {
+          className: "runtime",
+        });
+
+        mainEl.replaceChildren(runtimeEl);
+
+        const primaryFile = rom || bios;
+        console.log(`[Demo] Loaded file: ${primaryFile?.name} (${primaryFile?.size?.toLocaleString()} bytes)`);
+
+        if (primaryFile) {
+          toArrayBuffer(primaryFile).then((bytes) => {
+            if (bytes) {
+              computeChecksums(bytes).then((checksums) => {
+                const checksumMap = checksums.reduce((acc, c) => ({ ...acc, [c.label]: c.value }), {});
+                console.log(`[Demo] Checksums for ${primaryFile.name}:`, checksumMap);
+              });
+            }
+          });
+        }
+
+        const eventPayload = {
+          attachTo: runtimeEl,
+          container: runtimeEl,
+          target: runtimeEl,
+          rom,
+          bios,
+          fileName: primaryFile?.name,
+          byteLength: primaryFile?.size,
+          files: { rom, bios },
         };
 
-        const updateEscMenu = () => {
-          if (escMenuMount) {
-            escMenuMount.destroy();
+        const results = await demo.emit("launch", eventPayload);
+        const fileResults = await demo.emit("file", { action: "launch", ...eventPayload });
+
+        const allResults = [...results, ...fileResults];
+        for (const res of allResults) {
+          if (res && typeof res === "object" && (typeof res.start === "function" || typeof res.pause === "function" || typeof res.destroy === "function")) {
+            currentInstance = res;
+            break;
           }
-          escMenuMount = CEscMenu
-            .renderShadow({
-              open: isMenuOpen,
-              title: escMenuConfig.title || config.messages?.escMenuTitle || messages.escMenuTitle,
-              subtitle: sdk.manifest?.name || primaryFile.name,
-              hasSaveStates: Boolean(sdk.manifest?.capabilities?.saveStates || escMenuConfig.onSaveState),
-              optionGroups,
-              customItems: escMenuConfig.items || [],
-              messages,
-              onOpen: () => openMenu(),
-              onClose: () => closeMenu(),
-              onReset: () => {
-                closeMenu();
-                if (typeof escMenuConfig.onReset === "function") {
-                  escMenuConfig.onReset(instance);
-                } else if (typeof instance.reset === "function") {
-                  instance.reset();
-                }
-              },
-              onRestoreDefaults: () => {
-                const defaults = getDefaultOptionGroups();
-                for (const group of optionGroups) {
-                  const defaultGroup = defaults.find((g) => g.id === group.id);
-                  if (!defaultGroup) continue;
-                  for (const opt of group.options) {
-                    const defaultOpt = defaultGroup.options.find((o) => o.key === opt.key);
-                    if (defaultOpt) {
-                      opt.value = defaultOpt.value;
-                      if (typeof instance.setOption === "function") {
-                        instance.setOption(opt.key, opt.value);
+        }
+
+        if (escMenuConfig.enabled !== false) {
+          let isMenuOpen = false;
+          let escMenuMount = null;
+
+          const escContainer = $create("div", { className: "esc-container" });
+          runtimeEl.appendChild(escContainer);
+
+          const optionGroups = escMenuConfig.optionGroups ||
+            (escMenuConfig.options ? [{ id: "settings", label: "Settings", options: escMenuConfig.options }] : getDefaultOptionGroups());
+
+          const exitToLauncher = () => {
+            if (typeof window !== "undefined") {
+              window.removeEventListener("keydown", handleKeyDown);
+            }
+            if (escMenuMount) {
+              escMenuMount.destroy();
+              escMenuMount = null;
+            }
+            if (currentInstance && typeof currentInstance.destroy === "function") {
+              currentInstance.destroy();
+            }
+            currentInstance = null;
+            renderLauncher();
+          };
+
+          const updateEscMenu = () => {
+            if (escMenuMount) {
+              escMenuMount.destroy();
+            }
+            escMenuMount = CEscMenu
+              .renderShadow({
+                open: isMenuOpen,
+                title: escMenuConfig.title || config.messages?.escMenuTitle || messages.escMenuTitle,
+                subtitle: primaryFile?.name || "Game",
+                hasSaveStates: Boolean(config.manifest?.capabilities?.saveStates || escMenuConfig.onSaveState || currentInstance?.saveState),
+                optionGroups,
+                customItems: escMenuConfig.items || [],
+                messages,
+                onOpen: () => openMenu(),
+                onClose: () => closeMenu(),
+                onReset: () => {
+                  closeMenu();
+                  demo.emit("reset", { instance: currentInstance });
+                  if (typeof escMenuConfig.onReset === "function") {
+                    escMenuConfig.onReset(currentInstance);
+                  } else if (currentInstance && typeof currentInstance.reset === "function") {
+                    currentInstance.reset();
+                  }
+                },
+                onRestoreDefaults: () => {
+                  const defaults = getDefaultOptionGroups();
+                  for (const group of optionGroups) {
+                    const defaultGroup = defaults.find((g) => g.id === group.id);
+                    if (!defaultGroup) continue;
+                    for (const opt of group.options) {
+                      const defaultOpt = defaultGroup.options.find((o) => o.key === opt.key);
+                      if (defaultOpt) {
+                        opt.value = defaultOpt.value;
+                        if (currentInstance && typeof currentInstance.setOption === "function") {
+                          currentInstance.setOption(opt.key, opt.value);
+                        }
                       }
                     }
                   }
-                }
-                updateEscMenu();
-                if (typeof escMenuConfig.onRestoreDefaults === "function") {
-                  escMenuConfig.onRestoreDefaults(instance);
-                }
-              },
-              onOptionChange: (key, value, option) => {
-                if (typeof instance.setOption === "function") {
-                  instance.setOption(key, value);
-                }
-                if (typeof escMenuConfig.onOptionChange === "function") {
-                  escMenuConfig.onOptionChange(key, value, option, instance);
-                }
-              },
-              onSaveState: () => {
-                closeMenu();
-                if (typeof escMenuConfig.onSaveState === "function") {
-                  escMenuConfig.onSaveState(instance);
-                } else if (typeof instance.saveState === "function") {
-                  instance.saveState();
-                }
-              },
-              onLoadState: () => {
-                closeMenu();
-                if (typeof escMenuConfig.onLoadState === "function") {
-                  escMenuConfig.onLoadState(instance);
-                } else if (typeof instance.loadState === "function") {
-                  instance.loadState();
-                }
-              },
-              onExit: () => {
-                if (typeof escMenuConfig.onExit === "function") {
-                  escMenuConfig.onExit(instance);
-                }
-                exitToLauncher();
-              },
-              onCustomAction: (item) => {
-                closeMenu();
-                if (typeof item?.action === "function") {
-                  item.action(instance);
-                }
-              },
-            })
-            .mount(escContainer);
-        };
+                  updateEscMenu();
+                  demo.emit("restoreDefaults", { instance: currentInstance });
+                  if (typeof escMenuConfig.onRestoreDefaults === "function") {
+                    escMenuConfig.onRestoreDefaults(currentInstance);
+                  }
+                },
+                onOptionChange: (key, value, option) => {
+                  if (currentInstance && typeof currentInstance.setOption === "function") {
+                    currentInstance.setOption(key, value);
+                  }
+                  demo.emit("option", { key, value, option, instance: currentInstance });
+                  if (typeof escMenuConfig.onOptionChange === "function") {
+                    escMenuConfig.onOptionChange(key, value, option, currentInstance);
+                  }
+                },
+                onSaveState: () => {
+                  closeMenu();
+                  demo.emit("saveState", { instance: currentInstance });
+                  if (typeof escMenuConfig.onSaveState === "function") {
+                    escMenuConfig.onSaveState(currentInstance);
+                  } else if (currentInstance && typeof currentInstance.saveState === "function") {
+                    currentInstance.saveState();
+                  }
+                },
+                onLoadState: () => {
+                  closeMenu();
+                  demo.emit("loadState", { instance: currentInstance });
+                  if (typeof escMenuConfig.onLoadState === "function") {
+                    escMenuConfig.onLoadState(currentInstance);
+                  } else if (currentInstance && typeof currentInstance.loadState === "function") {
+                    currentInstance.loadState();
+                  }
+                },
+                onExit: () => {
+                  demo.emit("exit", { instance: currentInstance });
+                  if (typeof escMenuConfig.onExit === "function") {
+                    escMenuConfig.onExit(currentInstance);
+                  }
+                  exitToLauncher();
+                },
+                onCustomAction: (item) => {
+                  closeMenu();
+                  demo.emit("customAction", { item, instance: currentInstance });
+                  if (typeof item?.action === "function") {
+                    item.action(currentInstance);
+                  }
+                },
+              })
+              .mount(escContainer);
+          };
 
-        const openMenu = () => {
-          if (isMenuOpen) return;
-          isMenuOpen = true;
-          if (typeof instance.pause === "function") {
-            instance.pause();
+          const openMenu = () => {
+            if (isMenuOpen) return;
+            isMenuOpen = true;
+            demo.emit("pause", { instance: currentInstance });
+            demo.emit("esc", { open: true, instance: currentInstance });
+            if (currentInstance && typeof currentInstance.pause === "function") {
+              currentInstance.pause();
+            }
+            updateEscMenu();
+          };
+
+          const closeMenu = () => {
+            if (!isMenuOpen) return;
+            isMenuOpen = false;
+            demo.emit("resume", { instance: currentInstance });
+            demo.emit("esc", { open: false, instance: currentInstance });
+            if (currentInstance && typeof currentInstance.resume === "function") {
+              currentInstance.resume();
+            }
+            updateEscMenu();
+          };
+
+          const toggleMenu = () => {
+            if (isMenuOpen) closeMenu();
+            else openMenu();
+          };
+
+          const shortcutKey = escMenuConfig.shortcutKey || "Escape";
+          const handleKeyDown = (event) => {
+            if (event.key === shortcutKey || event.code === shortcutKey) {
+              event.preventDefault();
+              toggleMenu();
+            }
+          };
+
+          if (typeof window !== "undefined") {
+            window.addEventListener("keydown", handleKeyDown);
           }
           updateEscMenu();
-        };
-
-        const closeMenu = () => {
-          if (!isMenuOpen) return;
-          isMenuOpen = false;
-          if (typeof instance.resume === "function") {
-            instance.resume();
-          }
-          updateEscMenu();
-        };
-
-        const toggleMenu = () => {
-          if (isMenuOpen) closeMenu();
-          else openMenu();
-        };
-
-        const shortcutKey = escMenuConfig.shortcutKey || "Escape";
-        const handleKeyDown = (event) => {
-          if (event.key === shortcutKey || event.code === shortcutKey) {
-            event.preventDefault();
-            toggleMenu();
-          }
-        };
-
-        if (typeof window !== "undefined") {
-          window.addEventListener("keydown", handleKeyDown);
         }
-        updateEscMenu();
-      }
+      };
+
+      renderLauncher();
     };
 
-    renderLauncher();
+    boot().catch((err) => {
+      console.error("[Demo] Boot failed:", err);
+    });
 
     return demo;
   },

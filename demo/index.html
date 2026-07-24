@@ -13,23 +13,59 @@
       import demo from './demo.js'
       import sdk from './demo.sdk.js'
 
-      demo.init({
-        sdk,
-        messages: {
-          title: 'WASM Gaming Engine Demo',
-          dropRomPrompt: 'Drop ROM File',
-          launchButton: 'Launch Engine',
-          escMenuTitle: 'Settings',
-          escMenuResume: 'Resume',
-          escMenuReset: 'Reset game',
-          escMenuRestoreDefaults: 'Restore defaults',
-          escMenuExit: 'Exit to Launcher',
-        },
-        bios: false, // 'required' | 'optional' | false
-        escMenu: {
-          enabled: true,
-        },
-      })
+      demo
+        .init({
+          messages: {
+            title: 'WASM Gaming Engine Demo',
+            dropRomPrompt: 'Drop ROM File',
+            launchButton: 'Launch Engine',
+            escMenuTitle: 'Settings',
+            escMenuResume: 'Resume',
+            escMenuReset: 'Reset game',
+            escMenuRestoreDefaults: 'Restore defaults',
+            escMenuExit: 'Exit to Launcher',
+          },
+          bios: false, // 'required' | 'optional' | false
+          escMenu: {
+            enabled: true,
+          },
+        })
+        .on('rom:save', ({ file }) => {
+          console.log('[Demo] ROM loaded:', file?.name)
+        })
+        .on('bios:save', ({ file }) => {
+          console.log('[Demo] BIOS loaded:', file?.name)
+        })
+        .on('launch', async (e) => {
+          const assets = {}
+
+          // if rom loaded
+          if (demo.hasFile('rom')) {
+            assets.rom = await demo.loadToMEMFS('rom')
+          }
+
+          // if bios required and loaded
+          if (demo.hasFile('bios')) {
+            assets.bios = await demo.loadToMEMFS('bios')
+          }
+
+          const instance = await sdk.load({
+            attachTo: e.attachTo,
+            assets,
+            options: {
+              fileName: e.fileName,
+              byteLength: e.byteLength,
+            },
+            onEvent(event) {
+              if (event.type === 'error') {
+                console.error(event.error)
+              }
+            },
+          })
+
+          instance.start()
+          return instance
+        })
     </script>
   </body>
 </html>

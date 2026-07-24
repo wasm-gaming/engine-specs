@@ -12,20 +12,47 @@ This directory contains a standalone, themable web interface template for hostin
      import demo from './demo.js'
      import sdk from './demo.sdk.js' // Or your engine SDK import
 
-     demo.init({
-       sdk,
-       messages: {
-         title: 'My Custom Engine Demo',
-       },
-       bios: false, // 'required' | 'optional' | false
-       escMenu: {
-         enabled: true,
-         title: 'Game Pause Menu',
-         items: [
-           { label: 'Toggle Fullscreen', action: (instance) => { document.documentElement.requestFullscreen?.(); } }
-         ],
-       },
-     })
+     demo
+       .init({
+         messages: {
+           title: 'My Custom Engine Demo',
+         },
+         bios: false, // 'required' | 'optional' | false
+         escMenu: {
+           enabled: true,
+           title: 'Game Pause Menu',
+           items: [
+             { label: 'Toggle Fullscreen', action: (instance) => { document.documentElement.requestFullscreen?.(); } }
+           ],
+         },
+       })
+       .on('file', ({ type, action, file }) => {
+         if (file) {
+           console.log(`[Demo] Selected ${type} file: ${file.name}`)
+         }
+       })
+       .on('launch', async (e) => {
+         const assets = {}
+
+         // if rom loaded
+         if (demo.hasFile('rom')) {
+           assets.rom = await demo.loadToMEMFS('rom')
+         }
+
+         // if bios required and loaded
+         if (demo.hasFile('bios')) {
+           assets.bios = await demo.loadToMEMFS('bios')
+         }
+
+         const instance = await sdk.load({
+           attachTo: e.attachTo,
+           assets,
+           options: { fileName: e.fileName, byteLength: e.byteLength },
+         })
+
+         instance.start()
+         return instance
+       })
    </script>
    ```
 

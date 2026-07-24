@@ -38,11 +38,6 @@
   CSdkInfo,
   CDropArea,
   sdkInfo,
-  onLaunchFiles,
-  onSaveBios,
-  onSaveRom,
-  onRemoveBios,
-  onRemoveRom,
   initialRomFile = null,
   initialBiosFile = null,
   romAccept,
@@ -91,7 +86,7 @@
     }
     romFile = file;
     updateStatus();
-    onSaveRom?.(file);
+    $emit("save:rom", file);
   };
 
   const onBiosSelect = (arg) => {
@@ -102,19 +97,19 @@
     }
     biosFile = file;
     updateStatus();
-    onSaveBios?.(file);
+    $emit("save:bios", file);
   };
 
   const onRomRemove = () => {
     romFile = null;
     updateStatus();
-    onRemoveRom?.();
+    $emit("remove:rom");
   };
 
   const onBiosRemove = () => {
     biosFile = null;
     updateStatus();
-    onRemoveBios?.();
+    $emit("remove:bios");
   };
 
   const onLaunch = async () => {
@@ -125,7 +120,7 @@
     try {
       const launchingMsg = messages.launchingStatus || "Launching with";
       status = `${launchingMsg} ${romFile.name}...`;
-      await onLaunchFiles({ rom: romFile, bios: biosFile });
+      $emit("launch", { rom: romFile, bios: biosFile });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       status = `Failed to load engine: ${message}`;
