@@ -472,6 +472,17 @@ const demo = {
                 customItems: escMenuConfig.items || [],
                 messages,
               })
+              .mount(escContainer);
+          };
+
+          // Bound once, not per render. The $emit channel lives on the
+          // Component79 instance and deliberately survives destroy() — that is
+          // what lets it work while detached — so re-registering these inside
+          // updateEscMenu() stacked a fresh set of listeners on every open,
+          // close and restore-defaults. After N re-renders a single click
+          // reached the handler N times, growing without bound.
+          const bindEscMenuEvents = () => {
+            CEscMenu
               .on("close", () => closeMenu())
               .on("reset", () => {
                 closeMenu();
@@ -543,8 +554,7 @@ const demo = {
                 if (typeof item?.action === "function") {
                   item.action(currentInstance);
                 }
-              })
-              .mount(escContainer);
+              });
           };
 
           const openMenu = () => {
@@ -585,6 +595,7 @@ const demo = {
           if (typeof window !== "undefined") {
             window.addEventListener("keydown", handleKeyDown);
           }
+          bindEscMenuEvents();
           updateEscMenu();
         }
       };
