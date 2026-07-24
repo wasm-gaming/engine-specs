@@ -467,79 +467,78 @@ const demo = {
                 optionGroups,
                 customItems: escMenuConfig.items || [],
                 messages,
-                onOpen: () => openMenu(),
-                onClose: () => closeMenu(),
-                onReset: () => {
-                  closeMenu();
-                  demo.emit("reset", { instance: currentInstance });
-                  if (typeof escMenuConfig.onReset === "function") {
-                    escMenuConfig.onReset(currentInstance);
-                  } else if (currentInstance && typeof currentInstance.reset === "function") {
-                    currentInstance.reset();
-                  }
-                },
-                onRestoreDefaults: () => {
-                  const defaults = getDefaultOptionGroups();
-                  for (const group of optionGroups) {
-                    const defaultGroup = defaults.find((g) => g.id === group.id);
-                    if (!defaultGroup) continue;
-                    for (const opt of group.options) {
-                      const defaultOpt = defaultGroup.options.find((o) => o.key === opt.key);
-                      if (defaultOpt) {
-                        opt.value = defaultOpt.value;
-                        if (currentInstance && typeof currentInstance.setOption === "function") {
-                          currentInstance.setOption(opt.key, opt.value);
-                        }
+              })
+              .on("close", () => closeMenu())
+              .on("reset", () => {
+                closeMenu();
+                demo.emit("reset", { instance: currentInstance });
+                if (typeof escMenuConfig.onReset === "function") {
+                  escMenuConfig.onReset(currentInstance);
+                } else if (currentInstance && typeof currentInstance.reset === "function") {
+                  currentInstance.reset();
+                }
+              })
+              .on("restore-defaults", () => {
+                const defaults = getDefaultOptionGroups();
+                for (const group of optionGroups) {
+                  const defaultGroup = defaults.find((g) => g.id === group.id);
+                  if (!defaultGroup) continue;
+                  for (const opt of group.options) {
+                    const defaultOpt = defaultGroup.options.find((o) => o.key === opt.key);
+                    if (defaultOpt) {
+                      opt.value = defaultOpt.value;
+                      if (currentInstance && typeof currentInstance.setOption === "function") {
+                        currentInstance.setOption(opt.key, opt.value);
                       }
                     }
                   }
-                  updateEscMenu();
-                  demo.emit("restoreDefaults", { instance: currentInstance });
-                  if (typeof escMenuConfig.onRestoreDefaults === "function") {
-                    escMenuConfig.onRestoreDefaults(currentInstance);
-                  }
-                },
-                onOptionChange: (key, value, option) => {
-                  if (currentInstance && typeof currentInstance.setOption === "function") {
-                    currentInstance.setOption(key, value);
-                  }
-                  demo.emit("option", { key, value, option, instance: currentInstance });
-                  if (typeof escMenuConfig.onOptionChange === "function") {
-                    escMenuConfig.onOptionChange(key, value, option, currentInstance);
-                  }
-                },
-                onSaveState: () => {
-                  closeMenu();
-                  demo.emit("saveState", { instance: currentInstance });
-                  if (typeof escMenuConfig.onSaveState === "function") {
-                    escMenuConfig.onSaveState(currentInstance);
-                  } else if (currentInstance && typeof currentInstance.saveState === "function") {
-                    currentInstance.saveState();
-                  }
-                },
-                onLoadState: () => {
-                  closeMenu();
-                  demo.emit("loadState", { instance: currentInstance });
-                  if (typeof escMenuConfig.onLoadState === "function") {
-                    escMenuConfig.onLoadState(currentInstance);
-                  } else if (currentInstance && typeof currentInstance.loadState === "function") {
-                    currentInstance.loadState();
-                  }
-                },
-                onExit: () => {
-                  demo.emit("exit", { instance: currentInstance });
-                  if (typeof escMenuConfig.onExit === "function") {
-                    escMenuConfig.onExit(currentInstance);
-                  }
-                  exitToLauncher();
-                },
-                onCustomAction: (item) => {
-                  closeMenu();
-                  demo.emit("customAction", { item, instance: currentInstance });
-                  if (typeof item?.action === "function") {
-                    item.action(currentInstance);
-                  }
-                },
+                }
+                updateEscMenu();
+                demo.emit("restoreDefaults", { instance: currentInstance });
+                if (typeof escMenuConfig.onRestoreDefaults === "function") {
+                  escMenuConfig.onRestoreDefaults(currentInstance);
+                }
+              })
+              .on("option-change", ({ key, value, option }) => {
+                if (currentInstance && typeof currentInstance.setOption === "function") {
+                  currentInstance.setOption(key, value);
+                }
+                demo.emit("option", { key, value, option, instance: currentInstance });
+                if (typeof escMenuConfig.onOptionChange === "function") {
+                  escMenuConfig.onOptionChange(key, value, option, currentInstance);
+                }
+              })
+              .on("save-state", () => {
+                closeMenu();
+                demo.emit("saveState", { instance: currentInstance });
+                if (typeof escMenuConfig.onSaveState === "function") {
+                  escMenuConfig.onSaveState(currentInstance);
+                } else if (currentInstance && typeof currentInstance.saveState === "function") {
+                  currentInstance.saveState();
+                }
+              })
+              .on("load-state", () => {
+                closeMenu();
+                demo.emit("loadState", { instance: currentInstance });
+                if (typeof escMenuConfig.onLoadState === "function") {
+                  escMenuConfig.onLoadState(currentInstance);
+                } else if (currentInstance && typeof currentInstance.loadState === "function") {
+                  currentInstance.loadState();
+                }
+              })
+              .on("exit", () => {
+                demo.emit("exit", { instance: currentInstance });
+                if (typeof escMenuConfig.onExit === "function") {
+                  escMenuConfig.onExit(currentInstance);
+                }
+                exitToLauncher();
+              })
+              .on("custom-action", (item) => {
+                closeMenu();
+                demo.emit("customAction", { item, instance: currentInstance });
+                if (typeof item?.action === "function") {
+                  item.action(currentInstance);
+                }
               })
               .mount(escContainer);
           };

@@ -1,16 +1,16 @@
 <div class="esc-menu-wrapper">
   <!-- Fullscreen Modal Overlay -->
-  <div :if="open" class="esc-overlay" @click.self="onClose">
+  <div :if="open" class="esc-overlay" @click.self="$emit('close')">
     <div class="esc-panel" tabindex="-1">
       <!-- Header -->
       <header class="esc-header">
         <span class="esc-badge">{{ messages.escMenuBadge || 'PAUSED' }}</span>
         <h2>{{ title }}</h2>
-        <button type="button" class="esc-header-exit-btn" @click="onExit">
+        <button type="button" class="esc-header-exit-btn" @click="$emit('exit')">
           <i class="esc-icon exit"></i>
           {{ messages.escMenuExit || 'Exit to Launcher' }}
         </button>
-        <button type="button" class="esc-close-btn" @click="onClose" aria-label="Close menu">&times;</button>
+        <button type="button" class="esc-close-btn" @click="$emit('close')" aria-label="Close menu">&times;</button>
       </header>
 
       <!-- Scrollable Options Body -->
@@ -56,32 +56,32 @@
         <p class="esc-desc">{{ activeDescription || 'Select an option to view details.' }}</p>
 
         <div class="esc-actions">
-          <button type="button" class="esc-action-btn primary" @click="onClose">
+          <button type="button" class="esc-action-btn primary" @click="$emit('close')">
             <i class="esc-icon resume"></i>
             {{ messages.escMenuResume || 'Resume' }}
           </button>
 
-          <button type="button" class="esc-action-btn" @click="onRestoreDefaults">
+          <button type="button" class="esc-action-btn" @click="$emit('restore-defaults')">
             <i class="esc-icon defaults"></i>
             {{ messages.escMenuRestoreDefaults || 'Restore defaults' }}
           </button>
 
-          <button type="button" class="esc-action-btn" @click="onReset">
+          <button type="button" class="esc-action-btn" @click="$emit('reset')">
             <i class="esc-icon reset"></i>
             {{ messages.escMenuReset || 'Reset game' }}
           </button>
 
-          <button :if="hasSaveStates" type="button" class="esc-action-btn" @click="onSaveState">
+          <button :if="hasSaveStates" type="button" class="esc-action-btn" @click="$emit('save-state')">
             <i class="esc-icon save"></i>
             {{ messages.escMenuSaveState || 'Save State' }}
           </button>
 
-          <button :if="hasSaveStates" type="button" class="esc-action-btn" @click="onLoadState">
+          <button :if="hasSaveStates" type="button" class="esc-action-btn" @click="$emit('load-state')">
             <i class="esc-icon load"></i>
             {{ messages.escMenuLoadState || 'Load State' }}
           </button>
 
-          <button :each="item in customItems" type="button" class="esc-action-btn custom" @click="onCustomAction(item)">
+          <button :each="item in customItems" type="button" class="esc-action-btn custom" @click="$emit('custom-action', item)">
             {{ item.label }}
           </button>
         </div>
@@ -100,14 +100,6 @@
   optionGroups = [],
   customItems = [],
   messages = {},
-  onClose,
-  onReset,
-  onRestoreDefaults,
-  onOptionChange,
-  onSaveState,
-  onLoadState,
-  onExit,
-  onCustomAction,
 }">
   let activeKey = optionGroups?.[0]?.options?.[0]?.key || "";
   let activeDescription = optionGroups?.[0]?.options?.[0]?.description || "";
