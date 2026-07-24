@@ -307,7 +307,11 @@ const demo = {
         assetKey: "rom",
       });
 
-      const handleSaveRom = (file) => {
+      // Handlers bound to a jq79 mount are called as (event, payload) — the
+      // DOM CustomEvent first, the emitted value second. `demo.on()` below is
+      // a different emitter that passes the payload alone, so the two must not
+      // be read the same way.
+      const handleSaveRom = (_event, file) => {
         loadedFiles.rom = file;
         saveStoredAsset("rom", file);
         const payload = { file, key: "rom", type: "rom", action: "save" };
@@ -327,7 +331,7 @@ const demo = {
         demo.emit("file", payload);
       };
 
-      const handleSaveBios = (file) => {
+      const handleSaveBios = (_event, file) => {
         loadedFiles.bios = file;
         saveStoredAsset("bios", file);
         const payload = { file, key: "bios", type: "bios", action: "save" };
@@ -377,7 +381,7 @@ const demo = {
           .on("remove:rom", handleRemoveRom)
           .on("save:bios", handleSaveBios)
           .on("remove:bios", handleRemoveBios)
-          .on("launch", (payload) => bootWithFiles(payload))
+          .on("launch", (_event, payload) => bootWithFiles(payload))
           .mount(mainEl);
       };
 
@@ -499,7 +503,7 @@ const demo = {
                   escMenuConfig.onRestoreDefaults(currentInstance);
                 }
               })
-              .on("option-change", ({ key, value, option }) => {
+              .on("option-change", (_event, { key, value, option }) => {
                 if (currentInstance && typeof currentInstance.setOption === "function") {
                   currentInstance.setOption(key, value);
                 }
@@ -533,7 +537,7 @@ const demo = {
                 }
                 exitToLauncher();
               })
-              .on("custom-action", (item) => {
+              .on("custom-action", (_event, item) => {
                 closeMenu();
                 demo.emit("customAction", { item, instance: currentInstance });
                 if (typeof item?.action === "function") {
