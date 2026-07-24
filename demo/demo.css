@@ -57,6 +57,11 @@
   --demo-file-info-border: rgba(255, 255, 255, 0.8);
   --demo-file-info-blur: 10px;
 
+  /* ESC Menu Styling */
+  --demo-esc-bg: rgba(0, 0, 0, 0.45);
+  --demo-esc-card-bg: rgba(15, 23, 42, 0.92);
+  --demo-esc-text: #f8fafc;
+
   /* Typography & Fonts */
   --demo-font-sans: "Outfit", system-ui, -apple-system, sans-serif;
   --demo-font-mono: "Space Mono", monospace;

@@ -1,32 +1,34 @@
 <form class="launcher" @submit.prevent="onLaunch">
   <section class="sdk">
-    <CSdkInfo ...sdkInfo />
+    <CSdkInfo ...sdkInfo :messages="messages" />
   </section>
 
   <div class="drop-grid" :class.single="!showBIOS">
     <CDropArea
       :if="showBIOS"
-      :prompt="requiresBIOS ? 'Drop BIOS File (Required)' : 'Drop BIOS File (Optional)'"
-      :asset-hint="biosAssetHint"
+      :prompt="requiresBIOS ? (messages.dropBiosPromptRequired || 'Drop BIOS File (Required)') : (messages.dropBiosPromptOptional || 'Drop BIOS File (Optional)')"
+      :asset-hint="biosAssetHint || (requiresBIOS ? (messages.biosAssetHintRequired || 'required BIOS firmware file') : (messages.biosAssetHintOptional || 'optional BIOS firmware file'))"
       :accept="biosAccept"
-      :button-text="'Pick BIOS'"
+      :button-text="messages.pickBiosButton || 'Pick BIOS'"
       :file-name="biosFile?.name"
+      :messages="messages"
       @select="onBiosSelect"
       @remove="onBiosRemove"
     />
     <CDropArea
-      :prompt="'Drop ROM File'"
-      :asset-hint="romAssetHint"
+      :prompt="messages.dropRomPrompt || 'Drop ROM File'"
+      :asset-hint="romAssetHint || messages.romAssetHint || 'or choose ROM file from computer'"
       :accept="romAccept"
-      :button-text="'Pick ROM'"
+      :button-text="messages.pickRomButton || 'Pick ROM'"
       :file-name="romFile?.name"
+      :messages="messages"
       @select="onRomSelect"
       @remove="onRomRemove"
     />
   </div>
 
   <button type="submit" class="launch-btn" :disabled="!canLaunch">
-    Launch Engine
+    {{ messages.launchButton || 'Launch Engine' }}
   </button>
 
   <div class="status">{{ status }}</div>
@@ -44,11 +46,12 @@
   initialRomFile = null,
   initialBiosFile = null,
   romAccept,
-  romAssetHint = 'or choose ROM file from computer',
+  romAssetHint,
   biosAccept,
-  biosAssetHint = 'optional BIOS firmware file',
+  biosAssetHint,
   requiresBIOS = false,
   showBIOS = false,
+  messages = {},
 }">
   let romFile = initialRomFile;
   let biosFile = initialBiosFile;
@@ -59,13 +62,14 @@
   const updateStatus = () => {
     canLaunch = Boolean(romFile && (!requiresBIOS || biosFile));
     if (requiresBIOS && !biosFile && !romFile) {
-      status = "Ready - Please select ROM and BIOS files to launch.";
+      status = messages.statusSelectBoth || "Ready - Please select ROM and BIOS files to launch.";
     } else if (requiresBIOS && !biosFile) {
-      status = "BIOS file is required to launch.";
+      status = messages.statusBiosRequired || "BIOS file is required to launch.";
     } else if (!romFile) {
-      status = "Ready - Please select a ROM file to launch.";
+      status = messages.statusSelectRom || "Ready - Please select a ROM file to launch.";
     } else {
-      status = `Ready to launch! (${romFile.name}${biosFile ? ' + BIOS' : ''})`;
+      const readyMsg = messages.statusReady || "Ready to launch!";
+      status = `${readyMsg} (${romFile.name}${biosFile ? ' + BIOS' : ''})`;
     }
   };
 
@@ -119,7 +123,8 @@
       return;
     }
     try {
-      status = `Launching with ${romFile.name}...`;
+      const launchingMsg = messages.launchingStatus || "Launching with";
+      status = `${launchingMsg} ${romFile.name}...`;
       await onLaunchFiles({ rom: romFile, bios: biosFile });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

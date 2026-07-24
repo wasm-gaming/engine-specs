@@ -6,19 +6,48 @@ This directory contains a standalone, themable web interface template for hostin
 
 1. **Copy the `demo/` folder** into your engine repository.
 
-2. **Connect your engine SDK in `demo/sdk.js`**:
-   Open `demo/sdk.js` and point it to your engine SDK build:
-   ```javascript
-   import sdk from "../src/index.js"; // or "../dist/index.js"
+2. **Initialize via ES module script**:
+   ```html
+   <script type="module">
+     import demo from './demo.js'
+     import sdk from './demo.sdk.js' // Or your engine SDK import
 
-   export async function getSdk() {
-     return sdk;
-   }
+     demo.init({
+       sdk,
+       messages: {
+         title: 'My Custom Engine Demo',
+       },
+       bios: false, // 'required' | 'optional' | false
+       escMenu: {
+         enabled: true,
+         title: 'Game Pause Menu',
+         items: [
+           { label: 'Toggle Fullscreen', action: (instance) => { document.documentElement.requestFullscreen?.(); } }
+         ],
+       },
+     })
+   </script>
    ```
-   *Alternatively*, if embedding in HTML without modifying `sdk.js`, set `window.SDK = myEngineSdk;` before `demo.js` runs.
 
-3. **Serve the demo**:
-   Serve `demo/index.html` using any local development server (e.g. `npx serve demo` or Vite).
+---
+
+## 🎮 Component79 ESC Menu
+
+The demo includes an interactive, customizable in-game ESC pause menu component built with **Component79**.
+
+### ESC Menu Options (`escMenu`)
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | `true` | Enable/disable in-game ESC menu overlay. |
+| `title` | `string` | `"Game Menu"` | Title displayed at top of ESC menu modal. |
+| `shortcutKey` | `string` | `"Escape"` | Keyboard key that toggles the menu overlay. |
+| `showTriggerButton` | `boolean` | `true` | Display floating top-right "ESC Menu" trigger badge for mouse/touch access. |
+| `items` | `Array<{label: string, action: function}>` | `[]` | Custom action buttons added to ESC menu. |
+| `onReset` | `function` | `instance.reset()` | Callback when Reset Game button is pressed. |
+| `onExit` | `function` | `instance.destroy()` | Callback when Exit to Launcher button is pressed. |
+| `onSaveState` | `function` | `instance.saveState()` | Callback when Save State button is pressed. |
+| `onLoadState` | `function` | `instance.loadState()` | Callback when Load State button is pressed. |
 
 ---
 
@@ -50,15 +79,10 @@ To apply your custom branding, override any of the `:root` variables in `demo.cs
   --demo-subpanel-bg: rgba(30, 41, 59, 0.6);
   --demo-subpanel-border: rgba(255, 255, 255, 0.1);
 
-  /* Buttons & Dropzone */
-  --demo-drop-bg: rgba(30, 41, 59, 0.4);
-  --demo-picker-bg: rgba(255, 255, 255, 0.1);
-  --demo-picker-hover-bg: rgba(255, 255, 255, 0.2);
-  --demo-picker-text: #ffffff;
-
-  /* Launch button */
-  --demo-launch-bg: var(--demo-accent);
-  --demo-launch-text: #ffffff;
+  /* ESC Menu styling */
+  --demo-esc-bg: rgba(6, 9, 16, 0.85);
+  --demo-esc-card-bg: rgba(15, 23, 42, 0.9);
+  --demo-esc-text: #f8fafc;
 }
 ```
 
@@ -84,8 +108,9 @@ To apply your custom branding, override any of the `:root` variables in `demo.cs
 | `--demo-picker-bg` | Pick File button background | `rgba(255, 255, 255, 0.5)` |
 | `--demo-pill-bg` | Metadata badge background | `rgba(var(--demo-accent-rgb), 0.1)` |
 | `--demo-file-info-bg` | Canvas overlay panel background | `rgba(255, 255, 255, 0.7)` |
-| `--demo-launch-bg` | Launch button background color | `var(--demo-accent)` |
-| `--demo-launch-text` | Launch button text color | `#ffffff` |
+| `--demo-esc-bg` | ESC menu overlay background | `rgba(6, 9, 16, 0.82)` |
+| `--demo-esc-card-bg` | ESC menu card background | `rgba(15, 23, 42, 0.88)` |
+| `--demo-esc-text` | ESC menu text color | `#f8fafc` |
 | `--demo-font-sans` | Primary sans-serif font family | `"Outfit", system-ui, sans-serif` |
 | `--demo-font-mono` | Monospace code font family | `"Space Mono", monospace` |
 
@@ -93,6 +118,7 @@ To apply your custom branding, override any of the `:root` variables in `demo.cs
 
 ## 🛠 Features
 
+- **Component79 ESC Menu**: Customizable pause menu overlay with keydown listeners and touch/mouse badges.
 - **OPFS Asset Persistence**: Automatically stores selected ROM and BIOS files in the Origin Private File System (`navigator.storage.getDirectory()`), restoring them automatically across page reloads.
 - **Split Asset Drop Zones**: Independent drop/picker areas for optional **BIOS** firmware and game **ROM** assets.
 - **Dedicated Launch Trigger**: Prominent launch button that activates once required game assets are selected.

@@ -206,3 +206,6 @@ export function createDummySdk() {
 		},
 	};
 }
+
+export const sdk = createDummySdk();
+export default sdk;

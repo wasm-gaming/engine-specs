@@ -1,10 +1,22 @@
 <h1>{{ name }} ({{ id }})</h1>
 <p>{{ description }}</p>
 <div class="row">
-  <span class="pill">Version {{ version }}</span>
+  <span class="pill">{{ (messages.versionPrefix || 'Version ') + version }}</span>
   <span class="pill">{{ baseWidth }}x{{ baseHeight }}</span>
-  <span class="pill">Asset key: {{ assetKey }}</span>
+  <span class="pill">{{ (messages.assetKeyPrefix || 'Asset key: ') + assetKey }}</span>
 </div>
+
+<script :setup="{
+  name,
+  id,
+  description,
+  version,
+  baseWidth,
+  baseHeight,
+  assetKey,
+  messages = {},
+}">
+</script>
 
 <style>
   h1 {

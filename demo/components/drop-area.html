@@ -3,14 +3,14 @@
     @dragleave="dragging = false"
     @drop.prevent="onDrop">
     <strong>{{ prompt }}</strong>
-    <p :class.file-selected="selectedName">{{ selectedName ? 'Selected: ' + selectedName : assetHint }}</p>
+    <p :class.file-selected="selectedName">{{ selectedName ? ((messages.selectedPrefix || 'Selected: ') + selectedName) : assetHint }}</p>
     <div class="picker-actions">
         <label class="picker">
-            {{ selectedName ? 'Change File' : buttonText }}
+            {{ selectedName ? (messages.changeFileButton || 'Change File') : buttonText }}
             <input type="file" :accept="accept" @change="onPick" />
         </label>
         <button type="button" :if="selectedName" class="remove-btn" @click.stop="onRemove">
-            Remove
+            {{ messages.removeFileButton || 'Remove' }}
         </button>
     </div>
 </section>
@@ -21,6 +21,7 @@
   accept,
   buttonText = 'Pick file',
   fileName = '',
+  messages = {},
 }">
   let dragging = false;
   let selectedName = fileName || "";

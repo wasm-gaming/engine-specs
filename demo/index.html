@@ -9,6 +9,27 @@
   <body>
     <main></main>
 
-    <script type="module" src="./demo.js"></script>
+    <script type="module">
+      import demo from './demo.js'
+      import sdk from './demo.sdk.js'
+
+      demo.init({
+        sdk,
+        messages: {
+          title: 'WASM Gaming Engine Demo',
+          dropRomPrompt: 'Drop ROM File',
+          launchButton: 'Launch Engine',
+          escMenuTitle: 'Settings',
+          escMenuResume: 'Resume',
+          escMenuReset: 'Reset game',
+          escMenuRestoreDefaults: 'Restore defaults',
+          escMenuExit: 'Exit to Launcher',
+        },
+        bios: false, // 'required' | 'optional' | false
+        escMenu: {
+          enabled: true,
+        },
+      })
+    </script>
   </body>
 </html>
