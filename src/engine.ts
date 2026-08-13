@@ -69,14 +69,6 @@ export interface EngineInstance {
   loadState?(data: Uint8Array): Promise<void>;
   screenshot?(): Promise<Blob>;
 
-  /**
-   * Optional targeted purge of persisted runtime files for the active namespace.
-   * Engines that do not persist assets can omit this method.
-   */
-  purgeStorage?():
-    | { data: boolean; settings: boolean }
-    | Promise<{ data: boolean; settings: boolean }>;
-
   /** Tear down: stop the loop, release listeners/DOM, free the instance. */
   destroy(): void;
 }

@@ -29,8 +29,6 @@ engine-owned DOM.
 
 `EngineConfig.storageNamespace` is an optional host hint for per-game storage
 segregation (for example OPFS folders like `sonic1` and `sonic2`).
-`EngineInstance.purgeStorage()` is an optional method for engines that can remove
-persisted runtime files for the active namespace only.
 
 The host drives all engines identically.
 

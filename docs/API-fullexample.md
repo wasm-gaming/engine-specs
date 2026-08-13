@@ -23,12 +23,26 @@ instancia cuyas acciones también encadenan.
 ```js
 const sdk = new MotorSDK()
   .assets({ … })       // entradas del jugador — del host; el SDK sólo lee
-  .config({ … })       // ajustes del motor, de arranque
-  .storage({ … })      // carpeta propia del SDK: ajustes + partidas
+  .config({ … })       // ajustes del motor, de arranque — los guarda la UI, no el SDK
+  .options({ … })      // payload de sesión por defecto
+  .storage({ … })      // carpeta propia del SDK: partidas guardadas
   .on('error', fn)     // eventos
   .mount(el)           // dónde se ve
 
 const instance = await sdk.start({ … })
+```
+
+**Todo lo que se puede pasar a `start()` se puede dejar puesto en la fábrica**, y al revés. Las
+dos formas son la misma:
+
+```js
+const sdk = new MotorSDK()
+  .assets({ data: stored })   // assets por defecto del SDK
+  .mount(el)                  // nodo de montaje
+
+const instance = await sdk
+  .options({ player: 0 })     // payload por defecto
+  .start()                    // ≡ sdk.start({ player: 0 })
 ```
 
 Tres verbos de arranque, y dos de ellos son azúcar del tercero:
@@ -44,6 +58,9 @@ se siguen dos reglas que evitan casos de error:
 
 - **`boot()` es idempotente.** Con una instancia viva devuelve *esa* instancia.
 - Por tanto, `sdk.start(p)` con una instancia viva equivale a `instance.restart(p)`. No lanza.
+
+Y el payload que llega a `restart()` es el vigente —el de la fábrica, para empezar— con el de la
+llamada encima (ver [§5.4](#54-el-payload-por-defecto-vive-en-la-fábrica)).
 
 ---
 
@@ -104,8 +121,13 @@ escribir tests de tabla.
 
 ```js
 const setup = await db.get('sessions', 'last')   // IndexedDB, no JSON — ver §3.6
+// { assets: { data: handle }, config: { language: 4 },
+//   options: { slot: 0, player: 1 }, storage: { namespace: 'motor/juego-1' } }
 const instance = await new MotorSDK(setup).mount(el).start()
 ```
+
+Que `options` viaje en el setup es justo lo que hace que "restaurar la última sesión" signifique
+la partida de antes y no una partida nueva del mismo juego.
 
 ---
 
@@ -158,7 +180,12 @@ await new MotorSDK().assets({ data: stored }).mount(el).start()
 
 ### 3.4 Perezosos
 
-El thunk sólo se invoca si el asset hace falta de verdad.
+`assets()` es **siempre síncrono**: registra fuentes, no las resuelve. Nunca devuelve una
+promesa y nunca hay que esperarlo — igual que `config()`, `storage()` o `mount()`, sólo apunta
+en la cadena lo que le pasas.
+
+Por eso el valor puede ser un thunk, incluso `async`: la fábrica lo guarda tal cual y quien lo
+invoca —y espera— es `boot()`, y sólo si el asset hace falta de verdad.
 
 ```js
 sdk.assets({
@@ -195,8 +222,9 @@ usuario.
 Por eso el tipo se parte en dos:
 
 ```ts
-type EngineSetupData<C> = { config?: C; storage?: StorageSetup }   // JSON-safe
-type EngineSetup<C> = EngineSetupData<C> & {
+// JSON-safe
+type EngineSetupData<C, S> = { config?: C; options?: S; storage?: StorageSetup }
+type EngineSetup<C, S> = EngineSetupData<C, S> & {
   assets?: Record<string, AssetSource>
   mount?: HTMLElement
   on?: Partial<EngineEventMap>
@@ -209,27 +237,32 @@ El constructor acepta el completo; sólo `EngineSetupData` viaja en JSON.
 
 ## 4. Almacenamiento
 
-`.storage()` es la carpeta del SDK y contiene **sólo lo que el SDK escribe**: los ajustes que el
-motor necesita en disco y las partidas guardadas. Nunca assets.
+`.storage()` es la carpeta del SDK y contiene **sólo lo que el SDK escribe**: las partidas
+guardadas, y el estado interno que el motor persista por su cuenta. Nunca assets, y nunca las
+preferencias del jugador: ésas son de la UI ([§6](#6-config-y-options)).
 
 ```js
-sdk.storage({ namespace: 'motor/juego-1', required: true })
+sdk.storage({ namespace: 'motor/juego-1' })
 ```
 
-`required: true` convierte la falta de persistencia en un error de arranque. Sin él, el motor
-arranca y el host lo consulta:
+Un único parámetro, el `namespace`. **No hay bandera `required`**: si el motor necesita
+persistencia y no la tiene, el arranque falla solo, con un error tipado que además dice *qué*
+pasó —`storage-unavailable`, `storage-locked`, `quota-exceeded` (§9.2)—. Un booleano del host no
+añadiría información: no sabe qué necesita el motor, y el fallo real casi nunca es "hay o no hay
+almacén" sino algo concreto de una pieza concreta.
+
+Cuando la persistencia no es imprescindible, el motor arranca y el host pregunta:
 
 ```js
 const { namespace, persistent } = await instance.storage()
 if (!persistent) avisar('Esta partida no se guardará')
 ```
 
-Sin `.storage()` no se guarda nada: ni ajustes ni partidas.
+Sin `.storage()` no se guarda nada: ni partidas ni estado interno.
 
-```js
-await instance.purgeStorage()   // { settings: true, saves: true }
-// nunca toca los assets: no son suyos, y ni siquiera sabe dónde están
-```
+**La 1.0 no trae borrado.** No hay `purgeStorage()` ni equivalente: el namespace lo elige el
+host, así que la carpeta la sabe localizar, y `deleteSave()` cubre el caso normal. Si aparece la
+necesidad de vaciarlo todo desde el SDK, se plantea entonces.
 
 ---
 
@@ -265,7 +298,52 @@ const { player } = await instance.options()
 await instance.restart({ slot: 0, player: 2 })
 ```
 
-### 5.4 Cambiar de contenido
+### 5.4 El payload por defecto vive en la fábrica
+
+`sdk.options({…})` deja puesto el payload con el que se abrirá la sesión. Es exactamente lo
+mismo que pasárselo a `start()`, y sirve para lo que sirve toda la cadena: configurar en un
+sitio y arrancar en otro.
+
+```js
+sdk.options({ slot: 0, player: 1 })
+await sdk.start()                          // ≡ sdk.start({ slot: 0, player: 1 })
+```
+
+Una sola regla: **hay un payload vigente, empieza en el de la fábrica y cada `start()` /
+`restart()` mezcla encima el suyo** (mezcla plana, un nivel).
+
+```js
+sdk.options({ slot: 0, player: 1 })
+await sdk.start({ player: 2 })       // { slot: 0, player: 2 }
+await instance.restart({ slot: 3 })  // { slot: 3, player: 2 } — player sigue donde lo dejaste
+await instance.restart()             // { slot: 3, player: 2 } — power cycle: repite el vigente
+await instance.restart({ slot: null })   // { slot: null, player: 2 } — null es un valor
+                                         // explícito (partida nueva), no "sin cambios"
+```
+
+De ahí sale sin más el `restart()` sin argumentos de §5.2, y que `options` viaje en
+`EngineSetupData` —JSON-safe, §3.6— es lo que permite guardar y restaurar la sesión de §2.5.
+
+`sdk.options()` **no se congela con una instancia viva**, a diferencia de `assets()`, `config()`
+y `storage()`: no describe al motor, describe la próxima sesión, y abrir otra sesión es legal en
+cualquier momento. Tampoco cambia nada en caliente —para eso está `instance.options()`—; sólo
+apunta lo que valdrá en el próximo arranque, y así `sdk.options({…}).start()` se puede volver a
+ejecutar tal cual, igual que `sdk.start({…})`.
+
+```js
+sdk.options({ player: 2 })   // no se nota nada todavía
+await sdk.start()            // ahora sí: ≡ instance.restart({ player: 2 })
+```
+
+El getter de la fábrica es síncrono y devuelve la misma forma que los demás (§6.1), pero con
+`value` y poco más: las claves de la partida las declara el contenido cargado, no el manifest,
+así que sin motor no hay ni `enum` ni `title` que dar.
+
+```js
+sdk.options()   // { slot: { value: 0 }, player: { value: 2 } }
+```
+
+### 5.5 Cambiar de contenido
 
 Cambiar el asset rearranca el motor, y se nota en los eventos (`exit` y luego `ready`). Tras
 `destroy()` la fábrica se descongela y se puede reconfigurar.
@@ -279,20 +357,31 @@ await sdk.assets({ data: otroPack }).storage({ namespace: 'motor/juego-2' }).sta
 
 ## 6. `config()` y `options()`
 
-Tres niveles, dos dominios. **`config` es el motor; `options` es la partida.**
+Cuatro getters, dos dominios. **`config` es el motor; `options` es la partida.**
 
 | | quién escribe | cuándo | persiste |
 | --- | --- | --- | --- |
-| `sdk.config()` | host, antes de arrancar | congelado con instancia viva | sí, en `storage` |
+| `sdk.config()` | host, antes de arrancar | congelado con instancia viva | **no**: lo guarda la UI |
 | `instance.config()` | jugador, en marcha | inmediato | **no**: sólo esta sesión |
+| `sdk.options()` | host, entre sesiones | en el próximo arranque | no: es payload (§5.4) |
 | `instance.options()` | jugador, en marcha | inmediato | según el motor |
 
-`sdk.config()` es **síncrono**: no hay motor al que preguntar, sólo `manifest.config` con lo que
-la cadena haya puesto encima. Los dos de la instancia son asíncronos: cruzan al worker.
+Los dos de la fábrica son **síncronos**: no hay motor al que preguntar, sólo `manifest.config` y
+lo que la cadena haya puesto encima. Los dos de la instancia son asíncronos: cruzan al worker.
+
+**El SDK no guarda `config` en ningún sitio: dónde viven las preferencias lo decide la UI.** Para
+el contrato, `config` es una *entrada* de arranque, como los assets — el host la pasa y el motor
+la aplica. Si la UI las quiere en `localStorage`, en su IndexedDB o **en la nube, atadas a la
+cuenta del jugador** (que es lo que hace que las mismas preferencias le sigan a otro dispositivo),
+es asunto suyo y el SDK no tiene por qué enterarse.
+
+Y no es sólo delegar: si el SDK las persistiera además en su `storage`, habría dos copias de la
+misma preferencia —una local del SDK y otra de la UI— divergiendo en cuanto el jugador cambia el
+volumen en otro dispositivo. Una sola fuente de verdad, y es la de arriba (§6.3).
 
 ### 6.1 Un solo formato de propiedad resuelta
 
-Los tres getters devuelven `Record<string, ResolvedProperty>`, con la misma forma:
+Los cuatro getters devuelven `Record<string, ResolvedProperty>`, con la misma forma:
 
 ```ts
 type ResolvedProperty = {
@@ -307,7 +396,7 @@ type ResolvedProperty = {
 No hay campo `source`: el método que llamas *es* la fuente. `config()` son claves del motor,
 `options()` son claves de la partida.
 
-**`readOnly` significa lo mismo en los tres sitios: no se puede cambiar en la instancia viva,
+**`readOnly` significa lo mismo en todos los sitios: no se puede cambiar en la instancia viva,
 hay que reiniciar.** No significa inmutable — `player` es `readOnly` en `options()` y se cambia
 perfectamente con `restart({ player })`. Una pantalla de ajustes puede pintarlo en gris con un
 "requiere reiniciar" en vez de esconderlo.
@@ -351,11 +440,11 @@ mientras haya instancia:
 
 ```js
 const live = await instance.config()
-await db.put('prefs', Object.fromEntries(
-  Object.entries(live).map(([k, p]) => [k, p.value]),
-))
-// … la próxima vez …
-new MotorSDK({ config: await db.get('prefs') })
+const prefs = Object.fromEntries(Object.entries(live).map(([k, p]) => [k, p.value]))
+await api.savePrefs(prefs)     // donde la UI quiera: IndexedDB, la cuenta del jugador…
+
+// … la próxima vez, quizá en otro dispositivo …
+new MotorSDK({ config: await api.loadPrefs() })
 ```
 
 ### 6.4 Las opciones de la partida
@@ -433,7 +522,7 @@ instance.pause(OWNER.menu).saves()         // Promise<SaveSlot[]> — cierra
 | | encadena | cierra |
 | --- | --- | --- |
 | `restart` `pause` `resume` `mount` `setInput` `deleteSave` `loadState` `destroy` | ✓ | |
-| `saves` `storage` `purgeStorage` `screenshot` `saveState` | | ✓ |
+| `saves` `storage` `screenshot` `saveState` | | ✓ |
 | `options` `config` | con argumento (setter) | sin argumento (getter) |
 
 ```js
@@ -689,6 +778,7 @@ sdk.config({ startMenu: 'host' })        // ✓
 sdk.config({ startMenu: 'hots' })        // ✗ error de compilación
 await sdk.start({ player: 'B' })         // ✗ error: player es un índice
 await sdk.start({ player: 1 })           // ✓
+sdk.options({ player: 1 })               // ✓ mismo tipo que el payload de start()
 ```
 
 La conformidad se comprueba **en compilación**, que es lo que hoy no verifica nadie. Incluye el
@@ -704,10 +794,10 @@ aporta el arranque real:
 
 ```ts
 export abstract class EngineBuilder<Config, Start> implements EngineSDK<Config, Start> {
-  constructor(setup: EngineSetup<Config> = {}) { … }
-  // assets() · config() · storage() · on() · off() · mount() · missingAssets()
+  constructor(setup: EngineSetup<Config, Start> = {}) { … }
+  // assets() · config() · options() · storage() · on() · off() · mount() · missingAssets()
   // boot() · start() · saves()  ← aquí, para los diez motores
-  protected abstract create(setup: EngineSetup<Config>): Promise<EngineInstance<Start>>
+  protected abstract create(setup: EngineSetup<Config, Start>): Promise<EngineInstance<Start>>
 }
 
 export class MotorSDK extends EngineBuilder<MotorConfig, MotorStart> {
@@ -728,6 +818,8 @@ Qué hace cada método según haya o no una instancia viva:
 | --- | --- | --- |
 | `assets({…})` `config({…})` `storage({…})` | configura | **lanza** |
 | `config()` | lee (síncrono) | lee: con qué arrancó |
+| `options({…})` | fija el payload | fija el de la próxima sesión: **no lanza** |
+| `options()` | lee el payload (síncrono) | lee el payload vigente |
 | `mount(container)` | recuerda | reparenta y reajusta |
 | `mount(canvas)` | fija la superficie | **lanza** |
 | `on()` `off()` | registra | registra |
@@ -755,11 +847,11 @@ representable y no significa nada. ¿Escala?
 arrancar? Es coherente (si sabes leer el almacén, sabes borrarlo) pero amplía la superficie de
 la fábrica. Yo lo dejaría fuera de la 1.0: borrar es raro en un lanzador y ya hay `boot()`.
 
-**P3 · `instance.config()` y la persistencia.** Tu decisión es que el setter no persista. Eso
-deja al host la responsabilidad de guardar las preferencias del jugador (§6.3), porque
-`sdk.config()` está congelado mientras haya instancia. La alternativa sería un
-`instance.config(valores, { persist: true })`. Yo prefiero tu versión —el SDK no adivina qué
-merece sobrevivir— pero conviene que sea decisión explícita y no un olvido.
+**P3 · `config` y la persistencia. — Decidido: el SDK no la persiste, punto.** Ni el setter de la
+instancia ni el de la fábrica. `config` es una entrada de arranque, como los assets, y las
+preferencias las guarda la UI donde quiera —incluida la nube, atadas a la cuenta del jugador—.
+Descartado el `instance.config(valores, { persist: true })`: dejaría una copia local del SDK
+divergiendo de la de la UI en cuanto el jugador toca el volumen en otro dispositivo.
 
 **P4 · Eventos `pause` / `resume`.** No están en los ejemplos de rsdkv4. Los he añadido porque
 con pausa con dueño hay varios actores (menú, overlay, pérdida de foco) y sin evento cada uno
@@ -787,3 +879,20 @@ valores reservados, o un campo `phase` aparte?
 **P9 · Idioma.** Este documento está en español porque converge con `SDK-full-examples.md` y es
 material de trabajo. [README.md](../README.md) y [USAGE.md](../USAGE.md) están en inglés. Al
 publicar la 1.0, ¿lo traduzco?
+
+**P10 · `sdk.options()` y el payload vigente.** Tu ejemplo fija el payload en la fábrica; al
+escribirlo en §5.4 he tenido que decidir tres cosas que no estaban en él:
+
+- **(a) El payload es acumulativo**: hay uno vigente, empieza en el de la fábrica y cada
+  `start()`/`restart()` mezcla el suyo encima. Por eso `restart({ slot: 3 })` conserva el
+  `player` con el que abriste la sesión. La alternativa es que cada payload reemplace al
+  anterior y el de la fábrica sólo valga para la primera sesión — más fácil de implementar, pero
+  entonces `restart({ slot: 3 })` revierte `player` sin decir nada, que es justo la operación que
+  §6.5 manda hacer con `restart()`.
+- **(b) `sdk.options()` no se congela con instancia viva**, a diferencia de `assets()`,
+  `config()` y `storage()`. Si se congelase, `sdk.options({…}).start()` lanzaría la segunda vez
+  mientras que `sdk.start({…})` funciona, y las dos formas dejarían de ser la misma.
+- **(c) El getter de la fábrica devuelve `ResolvedProperty` con sólo `value`**, porque las claves
+  de la partida las declara el contenido y sin motor no hay esquema. La alternativa era que la
+  fábrica no tuviera getter de `options`, pero un setter sin getter rompe la simetría con
+  `config()`.
