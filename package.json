@@ -23,6 +23,7 @@
     "provenance": true
   },
   "devDependencies": {
+    "typedoc": "^0.28.20",
     "typescript": "^5.5.0"
   },
   "license": "MIT",

@@ -29,7 +29,7 @@ jobs:
       - name: Test
         run: make test
 
-  deploy-demo:
+  deploy-site:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: validate
     runs-on: ubuntu-latest
@@ -46,10 +46,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Upload demo
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site (demo + API reference)
+        run: make site
+
+      - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: demo
+          path: site
 
       - name: Deploy to GitHub Pages
         id: deployment

@@ -1,3 +1,7 @@
+---
+title: Usage
+---
+
 # Usage
 
 This package defines the shared contract between a frontend host and a WASM engine package.

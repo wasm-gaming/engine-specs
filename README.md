@@ -9,32 +9,30 @@ TypeScript is the source of truth ([src/](src/)); a JSON Schema
 the manifest for non-TS consumers; a Zod-based validator lets any CI fail on
 drift.
 
+## Documentation
+
+**[API reference](https://wasm-gaming.github.io/engine-specs/api-docs/)** — every type,
+generated from the source. It also carries the [contract
+map](https://wasm-gaming.github.io/engine-specs/api-docs/documents/Contract_map.html)
+(how the types fit together) and the [usage
+guide](https://wasm-gaming.github.io/engine-specs/api-docs/documents/Usage.html)
+(host-side wiring, from validating a manifest to forwarding input).
+
+The [demo](https://wasm-gaming.github.io/engine-specs/) runs a dummy engine through the
+same contract.
+
 ## Two layers
 
 **Layer A — declarative ([src/manifest.ts](src/manifest.ts))**
-`EngineManifest` describes what an engine ships and needs: artifacts (`wasm`/`js`),
-runtime `assets` (each with a VFS `mountPath` + optional `validate`), the `input`
-preset, `video` geometry, engine-specific `options` (a JSON Schema), and
-`capabilities`. Everything that differs between engines lives here as data.
+`EngineManifest` is what an engine declares about itself before anything boots.
+Everything that differs between engines lives here as data.
 
 **Layer B — imperative ([src/engine.ts](src/engine.ts))**
 Every engine package default-exports an `EngineSDK` = `{ manifest, load }`.
-`load(config)` boots the engine and returns an `EngineInstance`
-(`start`/`pause`/`resume`/`reset`/`setInput`/`destroy`, plus capability-gated
-`saveState`/`loadState`/`screenshot`).
-
-`EngineConfig` requires at least one render mount target: `canvasEl`, `attachTo`,
-or both. `attachTo` is the host container element where an SDK can mount
-engine-owned DOM.
-
-`EngineConfig.storageNamespace` is an optional host hint for per-game storage
-segregation (for example OPFS folders like `sonic1` and `sonic2`).
-
-The host drives all engines identically.
+`load(config)` boots the engine and returns an `EngineInstance` the host drives —
+identically for every engine.
 
 ## Usage
-
-For frontend integration examples and host-side wiring, see [USAGE.md](USAGE.md).
 
 An engine implements the contract:
 
@@ -64,6 +62,9 @@ npm install
 make build         # tsc → dist/ (.js + .d.ts)
 make typecheck     # no emit
 make test          # build + node test runner
+make docs          # typedoc → site/api-docs
+make site          # the Pages site: demo at the root, reference under /api-docs/
+make preview       # serve site/ on :8020
 make publish-dry-run
 make publish
 ```

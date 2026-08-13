@@ -1,3 +1,9 @@
+/**
+ * @module
+ * @document ../docs/CONTRACT-MAP.md
+ * @document ../docs/USAGE.md
+ */
+
 // @wasm-gaming/engine-specs — the engine contract.
 //
 // Layer A (declarative): EngineManifest & friends — what an engine ships/needs.

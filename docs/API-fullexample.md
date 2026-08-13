@@ -2,7 +2,7 @@
 
 > **Estado: propuesta, no implementado.** Este documento es el borrador de trabajo del
 > contrato 1.0. Sustituye a `EngineConfig` / `sdk.load()` (contrato `0.1.1`, ver
-> [USAGE.md](../USAGE.md)) y converge con los ejemplos de rsdkv4
+> [USAGE.md](USAGE.md)) y converge con los ejemplos de rsdkv4
 > (`docs/SDK-full-examples.md` en `rsdkv4-wasm`), generalizados a cualquier motor.
 >
 > Los ejemplos son la especificación: si un ejemplo y una tabla no coinciden, gana el ejemplo.
@@ -877,7 +877,7 @@ querrá reportar fases sin asset (instanciar el wasm, descomprimir). ¿`key` lib
 valores reservados, o un campo `phase` aparte?
 
 **P9 · Idioma.** Este documento está en español porque converge con `SDK-full-examples.md` y es
-material de trabajo. [README.md](../README.md) y [USAGE.md](../USAGE.md) están en inglés. Al
+material de trabajo. [README.md](../README.md) y [USAGE.md](USAGE.md) están en inglés. Al
 publicar la 1.0, ¿lo traduzco?
 
 **P10 · `sdk.options()` y el payload vigente.** Tu ejemplo fija el payload en la fábrica; al
