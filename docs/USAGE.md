@@ -4,6 +4,12 @@ title: Usage
 
 # Usage
 
+> **This page documents the 0.2.x contract — `{ manifest, load }` — which is what is on npm
+> today and stays frozen there.** The API reference alongside it already shows the 1.0 shapes
+> ({@link EngineSDK} / {@link EnginePlay}), which are not published yet. If you are integrating
+> now, this page is the one to follow; if you are designing against 1.0, start from the
+> [Contract map](CONTRACT-MAP.md). A migration guide lands with the 1.0 release.
+
 This package defines the shared contract between a frontend host and a WASM engine package.
 
 The host usually does three things:

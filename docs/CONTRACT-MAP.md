@@ -60,47 +60,92 @@ classDiagram
 
 ## Layer B — driving the engine
 
-The host holds an {@link EngineSDK}, calls `load()` with an {@link EngineConfig}, and gets
-back an {@link EngineInstance}. Events flow the other way, through `onEvent`.
+Two classes. The host configures an {@link EngineSDK} by chaining — all synchronous, none
+of it crosses to the engine — and `boot()`/`start()` hand back an {@link EnginePlay}: the
+live engine. Sessions come and go on that same engine through `restart()`.
 
 ```mermaid
 classDiagram
   direction LR
   class EngineSDK {
-    +EngineManifest manifest
-    +load(EngineConfig) Promise~EngineInstance~
+    <<abstract>>
+    +manifest EngineManifest$
+    +assets(sources) this
+    +config(values?) this|Resolved
+    +options(payload?) this|Resolved
+    +storage(setup) this
+    +mount(target) this
+    +on(type, handler) this
+    +missingAssets() string[]
+    +boot() PlayPromise~Play~
+    +start(payload?) PlayPromise~Play~
+    +saves()? Promise~SaveSlot[]~
+    #create(setup) Promise~Play~
   }
-  class EngineConfig {
-    +Record~string,AssetData~ assets
-    +Record~string,unknown~ options?
-    +PersistMode persist?
-    +string storageNamespace?
-    +HTMLCanvasElement canvasEl
-    +HTMLElement attachTo
-    +onEvent(EngineEvent)
+  class EngineSetup {
+    +Record~string,AssetSource~ assets?
+    +Partial~Config~ config?
+    +Partial~Options~ options?
+    +StorageSetup storage?
+    +HTMLElement mount?
   }
-  class EngineInstance {
-    +start() void
-    +pause() void
-    +resume() void
-    +reset() void
-    +setInput(map) void
+  class EnginePlay {
+    <<abstract>>
+    +restart(options?) PlayPromise
+    +pause(owner) PlayPromise
+    +resume(owner) PlayPromise
+    +mount(target) PlayPromise
+    +setInput(map) PlayPromise
+    +config(values?) PlayPromise|Resolved
+    +options(values?) PlayPromise|Resolved
+    +storage() Promise~StorageInfo~
+    +saves()? Promise~SaveSlot[]~
     +saveState()? Promise~Uint8Array~
-    +loadState(data)? Promise~void~
     +screenshot()? Promise~Blob~
-    +destroy() void
+    +destroy() Promise~void~
   }
-  class EngineEvent {
-    <<union>>
-    ready | error | exit | frame
+  class PlayPromise {
+    <<type>>
+    Promise~Play~ & Play
   }
-  EngineSDK ..> EngineManifest : declares
-  EngineSDK ..> EngineConfig : load(config)
-  EngineSDK ..> EngineInstance : returns
-  EngineConfig ..> EngineEvent : onEvent
-  EngineInstance ..> EngineEvent : emits
+  class EngineEventMap {
+    ready | start | progress | frame
+    pause | resume | error | exit
+  }
+  EngineSDK ..> EngineManifest : declares (static)
+  EngineSDK *-- EngineSetup : constructor / chain
+  EngineSDK ..> PlayPromise : boot() / start()
+  PlayPromise ..> EnginePlay : resolves to
+  EnginePlay ..> PlayPromise : actions chain
+  EngineSDK ..> EngineEventMap : on()
+  EnginePlay ..> EngineEventMap : emits
 ```
 
-The capability-gated members (`saveState`, `loadState`, `screenshot`) exist **only** when
-{@link EngineCapabilities} says so — that dashed line between the two layers is the whole
-point of splitting them.
+Three boot verbs, and two are sugar for the third — the equivalence is literal, it is how
+the base class implements them:
+
+| | what it does | equals |
+| --- | --- | --- |
+| `sdk.boot()` | engine alive, no session | — |
+| `play.restart(p)` | opens or reopens a session | — |
+| `sdk.start(p)` | engine alive **and** session running | `boot().restart(p)` |
+
+`boot()` is idempotent, so one factory governs at most one live engine.
+
+{@link PlayPromise} is what makes the chain work: a promise of the live engine hydrated
+with the engine's own methods. Since every {@link EnginePlay} method already returns a
+promise, actions come back chainable and queries come back closed, with no extra
+machinery — and `then()` closes the chain, like a getter.
+
+```js
+await play.pause(OWNER.menu).options({ spindash: true }).resume(OWNER.menu)
+const slots = await play.pause(OWNER.menu).saves()   // closes
+```
+
+`destroy()` closes too, returning `Promise<void>`. That `await` is the barrier that keeps
+the factory frozen until teardown settles — without it a host could repoint `storage()`
+while the old engine is still flushing saves into the old namespace.
+
+The capability-gated members (`saves`, `deleteSave`, `saveState`, `loadState`,
+`screenshot`) exist **only** when {@link EngineCapabilities} says so — that dashed line
+between the two layers is the whole point of splitting them.

@@ -7,7 +7,7 @@
 // @wasm-gaming/engine-specs — the engine contract.
 //
 // Layer A (declarative): EngineManifest & friends — what an engine ships/needs.
-// Layer B (imperative):  EngineSDK / EngineInstance — how the host drives it.
+// Layer B (imperative):  EngineSDK / EnginePlay — how the host drives it.
 // Plus a runtime validator for the manifest.
 
 export type {
@@ -22,13 +22,30 @@ export type {
   JSONSchema,
 } from './manifest.js';
 
+// The two base classes. Every member is abstract for now: the shapes are the 1.0
+// contract, the implementation lands with it.
+export { EngineSDK, EnginePlay } from './engine.js';
+
 export type {
-  EngineSDK,
-  EngineInstance,
-  EngineConfig,
-  EngineEvent,
-  AssetData,
-  PersistMode,
+  EngineSDKClass,
+  // Setup
+  AssetSource,
+  EngineSetup,
+  EngineSetupData,
+  StorageSetup,
+  StorageInfo,
+  // Config & options
+  ResolvedProperty,
+  ResolvedProperties,
+  // Lifecycle
+  PlayPromise,
+  // Events & errors
+  EngineEventMap,
+  EngineEventHandlers,
+  EngineError,
+  EngineErrorCode,
+  // Saves
+  SaveSlot,
 } from './engine.js';
 
 export { validateManifest, assertManifest } from './validate.js';
