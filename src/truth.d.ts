@@ -1,13 +1,65 @@
 
-export interface PropertiesDefinition {
-  [key: string]: {
-    value: any;
+export abstract class EngineSDK {
+  #config: EngineConfig;
+  #options: EngineOptions;
+  #assets: EngineAssets;
+  #storage: EngineStorage;
+  constructor(init?: EngineInitOptions);
+  config(): Promise<PropertiesDefinition<EngineConfig>>;
+  config({ }: Partial<EngineConfig>): EngineSDK;
+  options(): Promise<PropertiesDefinition<EngineOptions>>;
+  options({ }: Partial<EngineOptions>): EngineSDK;
+  assets(): Promise<PropertiesDefinition<EngineAssets>>;
+  assets({ }: Partial<EngineAssets>): EngineSDK;
+  storage(): Promise<PropertiesDefinition<EngineStorage>>;
+  storage({ }: Partial<EngineStorage>): EngineSDK;
+  boot(): PromisePLAY;
+  start(): PromisePLAY;
+}
+
+export abstract class EnginePlay {
+  #config: EngineConfig;
+  #options: EngineOptions;
+  #assets: EngineAssets;
+  #storage: EngineStorage;
+  constructor(init?: EngineInitOptions);
+  
+  config(): Promise<PropertiesDefinition<EngineConfig>>;
+  config({ }: Partial<EngineConfig>): PromisePLAY;
+  options(): Promise<PropertiesDefinition<EngineOptions>>;
+  options({ }: Partial<EngineOptions>): PromisePLAY;
+  assets(): Promise<PropertiesDefinition<EngineAssets>>;
+  assets({ }: Partial<EngineAssets>): PromisePLAY;
+  storage(): Promise<PropertiesDefinition<EngineStorage>>;
+  storage({ }: Partial<EngineStorage>): PromisePLAY;
+  restart(): PromisePLAY;
+  destroy(): Promise<void>;
+}
+
+export abstract class PromisePLAY extends Promise<EnginePlay> {
+  constructor(play: EnginePlay);
+
+  config(): Promise<PropertiesDefinition<EngineConfig>>;
+  config({ }: Partial<EngineConfig>): PromisePLAY;
+  options(): Promise<PropertiesDefinition<EngineOptions>>;
+  options({ }: Partial<EngineOptions>): PromisePLAY;
+  assets(): Promise<PropertiesDefinition<EngineAssets>>;
+  assets({ }: Partial<EngineAssets>): PromisePLAY;
+  storage(): Promise<PropertiesDefinition<EngineStorage>>;
+  storage({ }: Partial<EngineStorage>): PromisePLAY;
+  restart(): PromisePLAY;
+  destroy(): Promise<void>;
+}
+
+export type PropertiesDefinition<T> = {
+  [K in keyof T]-?: {
+    value: T[K];
     description?: string;
-    editable: boolean = true;
-    default: any;
-    enum?: any[];
+    editable: boolean;
+    default: T[K];
+    enum?: T[K][];
     allowedTypes?: string[];
-  }
+  };
 }
 
 export interface EngineConfig {
@@ -28,48 +80,15 @@ export interface EngineStorage {
   // Defined by the engine
 }
 
-export abstract class PromisePLAY extends Promise<EnginePlay> {
-  constructor();
-
-  set config({ }: EngineConfig): PromisePLAY;
-  get config(): Promise<PropertiesDefinition, EngineConfig>;
-  set options({ }: EngineOptions): PromisePLAY;
-  get options(): Promise<PropertiesDefinition, EngineOptions>;
-  set assets({ }: EngineAssets): PromisePLAY;
-  get assets(): Promise<PropertiesDefinition, EngineAssets>;
-  set storage({ }: EngineStorage): PromisePLAY;
-  get storage(): Promise<PropertiesDefinition, EngineStorage>;
-  restart(): PromisePLAY;
-  destroy(): PromisePLAY;
-}
-declare abstract class EnginePlay {
-  #config: EngineConfig;
-  #options: EngineOptions;
-  #assets: EngineAssets;
-  #storage: EngineStorage;
-  constructor({ config, options, assets, storage }?: EnginePlay);
-  set config({ }: EngineConfig): PromisePLAY;
-  get config(): Promise<PropertiesDefinition, EngineConfig>;
-  set options({ }: EngineOptions): PromisePLAY;
-  get options(): Promise<PropertiesDefinition, EngineOptions>;
-  set assets({ }: EngineAssets): EnginePlay;
-  get assets(): Promise<PropertiesDefinition, EngineAssets>;
-  set storage({ }: EngineStorage): EnginePlay;
-  get storage(): Promise<PropertiesDefinition, EngineStorage>;
-  restart(): PromisePLAY;
-  destroy(): PromisePLAY;
+export interface EngineInitOptions {
+  config?: EngineConfig;
+  options?: EngineOptions;
+  assets?: EngineAssets;
+  storage?: EngineStorage;
 }
 
-export abstract class EngineSDK {
-  #config: EngineConfig;
-  #options: EngineOptions;
-  #assets: EngineAssets;
-  #storage: EngineStorage;
-  constructor({ config, options, assets, storage }?: EngineSDK);
-  config({ }: EngineConfig): EngineSDK;
-  options({ }: EngineOptions): EngineSDK;
-  assets({ }: EngineAssets): EngineSDK;
-  storage({ }: EngineStorage): EngineSDK;
-  boot(): PromisePLAY;
-  start(): PromisePLAY;
-}
+
+
+
+
+
