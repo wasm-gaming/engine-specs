@@ -1,6 +1,6 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/index.ts"],
+  "entryPoints": ["src/engine-specs.ts"],
   "out": "site/api-docs",
   "name": "@wasm-gaming/engine-specs",
   "includeVersion": true,

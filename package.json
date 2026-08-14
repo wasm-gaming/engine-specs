@@ -1,21 +1,19 @@
 {
   "name": "@wasm-gaming/engine-specs",
   "version": "0.2.7",
-  "description": "The wasm-gaming engine contract: the single shared interface every WASM game/emulator engine and the host app conform to. TypeScript types + JSON Schema + a Zod runtime validator.",
+  "description": "The wasm-gaming engine contract: the single shared JS API every WASM game/emulator engine and the host app conform to. TypeScript types, no runtime dependencies.",
   "type": "module",
-  "types": "./dist/index.d.ts",
+  "types": "./dist/engine-specs.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./schema/engine-manifest.json": "./schema/engine-manifest.schema.json"
+      "types": "./dist/engine-specs.d.ts",
+      "import": "./dist/engine-specs.js"
+    }
   },
   "files": [
     "dist/",
     "demo/",
-    "src/",
-    "schema/"
+    "src/"
   ],
   "publishConfig": {
     "access": "public",
@@ -30,8 +28,5 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wasm-gaming/engine-specs.git"
-  },
-  "dependencies": {
-    "zod": "^4.4.3"
   }
 }

@@ -1,16 +1,24 @@
 						
-.PHONY: build typecheck test docs site preview publish publish-dry-run
+.PHONY: build typecheck typecheck-tests test docs site preview publish publish-dry-run
 
 TSC := ./node_modules/.bin/tsc
 TYPEDOC := ./node_modules/.bin/typedoc
 
+# `tsc` never removes output whose source is gone, so a deleted module would survive
+# in dist/ and get published. Clean first, always.
 build:
+	rm -rf dist
 	$(TSC) -p tsconfig.json
 
 typecheck:
 	$(TSC) -p tsconfig.json --noEmit
 
-test: build
+# The compile-time conformance suite: tests/types.test-d.ts and the reference engine.
+# Passing tsc IS the assertion — there is nothing to run.
+typecheck-tests:
+	$(TSC) -p tests/tsconfig.json
+
+test: build typecheck-tests
 	node --test tests/*.test.mjs
 
 publish: typecheck test
