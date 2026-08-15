@@ -1,24 +1,34 @@
 {
   "$schema": "https://typedoc.org/schema.json",
-  "entryPoints": ["src/engine-specs.ts"],
-  "out": "site/api-docs",
+  "entryPoints": [
+    "src/engine-specs.ts"
+  ],
+  "out": "site",
   "name": "@wasm-gaming/engine-specs",
   "includeVersion": true,
-  "readme": "none",
+  "readme": "README.md",
   "githubPages": true,
   "hideGenerator": true,
   "navigationLinks": {
-    "Demo": "../",
+    "Demo": "./demo/",
     "GitHub": "https://github.com/wasm-gaming/engine-specs"
   },
   "categorizeByGroup": true,
-  "sort": ["source-order"],
+  "sort": [
+    "source-order"
+  ],
   "navigation": {
     "includeGroups": true,
     "includeFolders": true,
     "compactFolders": true
   },
   "intentionallyNotExported": [],
-  "customFooterHtml": "The engine contract for the wasm-gaming ecosystem · <a href=\"https://github.com/wasm-gaming/engine-specs\">Source</a> · MIT",
-  "ignoredHighlightLanguages": ["mermaid"]
+  "customFooterHtml": "The engine contract for the wasm-gaming ecosystem \u00b7 <a href=\"https://github.com/wasm-gaming/engine-specs\">Source</a> \u00b7 MIT<script>(function(){var title=document.querySelector(\".tsd-page-toolbar a.title\");var link=document.querySelector(\"#tsd-toolbar-links a[href='./demo/']\");if(title&&link)link.href=new URL(\"demo/\",new URL(title.getAttribute(\"href\"),location.href)).href;})();</script>",
+  "ignoredHighlightLanguages": [
+    "mermaid"
+  ],
+  "headings": {
+    "readme": false,
+    "document": false
+  }
 }

@@ -66,7 +66,7 @@ test('the built contract exposes the documented surface', async () => {
     'PropertiesDefinition',
     'EnginePayloads',
     'EngineInit',
-    'EngineDataAccessors',
+    'EngineSurface',
     'EnginePlay',
     'PromisePlay',
     'EngineSDK',

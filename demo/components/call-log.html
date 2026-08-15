@@ -1,0 +1,33 @@
+<!--
+  Every contract call the page makes, newest first — so the chain is readable while
+  it runs, and `sdk.mount(stage).start()` is visibly one expression.
+-->
+<div class="log">
+  <div :each="(entry, index) in entries" :class.head="index === 0">{{ entry }}</div>
+</div>
+
+<script :setup="{
+  entries = [],
+}">
+</script>
+
+<style>
+  .log {
+    font-family: var(--mono, monospace);
+    font-size: 0.75rem;
+    color: var(--muted, #64748b);
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .log div {
+    padding: 0.2rem 0;
+    border-top: 1px solid var(--border, #e2e8f0);
+    word-break: break-all;
+  }
+
+  .log div.head {
+    color: var(--text, #0f172a);
+    border-top: 0;
+  }
+</style>

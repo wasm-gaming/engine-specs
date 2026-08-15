@@ -1,0 +1,42 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  # Called by release.yml, so a release validates with exactly the same steps a PR
+  # did — there is no second copy of the checks to drift.
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The contract itself.
+      - name: Typecheck
+        run: make typecheck
+
+      # Cleans dist/, rebuilds, then runs the compile-time conformance suites
+      # (tests/ and demo/) and the package integrity tests.
+      - name: Test
+        run: make test
+
+      # Not a deploy — building the site is how a broken typedoc entry point or a
+      # missing demo file gets caught on the PR that breaks it, rather than at
+      # release time.
+      - name: Build site
+        run: make site

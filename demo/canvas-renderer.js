@@ -20,6 +20,8 @@ export function createCanvasRenderer(canvasEl, { onFrame } = {}) {
 	let lastFrame = performance.now();
 
 	const fontSize = 30;
+	/** @typedef {{ y: number, speed: number, opacity: number, length: number, chars: string[] }} Drop */
+	/** @type {Drop[]} */
 	let drops = [];
 
 	const fitCanvasToWindow = () => {
@@ -29,6 +31,7 @@ export function createCanvasRenderer(canvasEl, { onFrame } = {}) {
 		canvasEl.height = Math.max(1, Math.floor(rect.height * dpr));
 	};
 
+	/** @param {number} time */
 	const render = (time) => {
 		if (!running) {
 			return;
@@ -63,9 +66,7 @@ export function createCanvasRenderer(canvasEl, { onFrame } = {}) {
 		ctx.font = "bold " + fontSize + "px 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans CJK JP', sans-serif";
 		ctx.textAlign = "center";
 
-		for (let x = 0; x < drops.length; x++) {
-			let drop = drops[x];
-
+		for (const [x, drop] of drops.entries()) {
 			if (Math.random() > 0.4) {
 				let randIdx = Math.floor(Math.random() * drop.chars.length);
 				drop.chars[randIdx] = String.fromCharCode(0x30A0 + Math.random() * 96);
@@ -79,7 +80,8 @@ export function createCanvasRenderer(canvasEl, { onFrame } = {}) {
 				let charY = startY - i;
 				if (charY < 0 || charY >= maxRows) continue;
 
-				let text = drop.chars[charY];
+				const text = drop.chars[charY];
+				if (text === undefined) continue;
 				let alpha = drop.opacity * (1 - (i / drop.length));
 
 				if (i === 0) {

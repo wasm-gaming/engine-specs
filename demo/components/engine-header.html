@@ -1,0 +1,78 @@
+<!--
+  The engine's identity, read off the class before anything is constructed.
+
+  This is what replaced the manifest: `id`, `version`, `name` and `description` are
+  static members of the SDK constructor, so a launcher can list engines without
+  booting one.
+-->
+<header>
+  <div>
+    <h1>{{ name }} <code>{{ id }}</code></h1>
+    <p>{{ description }}</p>
+  </div>
+  <div class="right">
+    <span class="pill">v{{ version }}</span>
+    <a class="pill link" :href="referenceHref">API reference</a>
+  </div>
+</header>
+
+<script :setup="{
+  name,
+  id,
+  version,
+  description = '',
+  referenceHref = '../',
+}">
+</script>
+
+<style>
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+    background: var(--panel, #fff);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.25rem;
+    letter-spacing: 0.02em;
+    color: var(--text, #0f172a);
+  }
+
+  code {
+    font-family: var(--mono, monospace);
+    font-size: 0.75em;
+    color: var(--muted, #64748b);
+  }
+
+  p {
+    margin: 0.25rem 0 0;
+    color: var(--muted, #64748b);
+  }
+
+  .right {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .pill {
+    border: 1px solid var(--accent, #ff007f);
+    border-radius: 2px;
+    padding: 0.25rem 0.6rem;
+    font-family: var(--mono, monospace);
+    font-size: 0.78rem;
+    color: var(--accent, #ff007f);
+    background: rgb(255 0 127 / 0.08);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .link {
+    text-decoration: none;
+  }
+</style>

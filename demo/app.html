@@ -1,0 +1,227 @@
+<!--
+  The demo, as one root component.
+
+  It drives the engine only through the contract, and every panel is painted from
+  something the contract handed back:
+
+  - the header is the class's static identity, read before any engine exists;
+  - the pickers get their file filter from each asset descriptor's `allowedTypes`;
+  - the tables are `config()`, `options()`, `assets()` and `storage()` rendered as
+    they arrive — one component, and not one key name written on this side.
+
+  State lives in the `let`s below: reassigning one repaints what depends on it, so
+  there is no mount bookkeeping here.
+-->
+
+<EngineHeader :name="name" :id="id" :version="version" :description="description" />
+
+<div class="layout">
+  <aside>
+    <section>
+      <h2>assets</h2>
+      <AssetPicker :assets="assets" @select="onSelect" @remove="onRemove" />
+    </section>
+
+    <section>
+      <h2>lifecycle</h2>
+      <LifecycleBar :running="running" @start="onStart" @restart="onRestart"
+        @pause="onPause" @resume="onResume" @destroy="onDestroy" />
+    </section>
+
+    <section>
+      <h2>calls</h2>
+      <CallLog :entries="calls" />
+    </section>
+  </aside>
+
+  <div>
+    <!-- The engine is handed this element and appends its own canvas to it. -->
+    <div id="stage"></div>
+    <PropertyTable :tables="tables" />
+  </div>
+</div>
+
+<script :setup="{}">
+  const EngineHeader = await import('./components/engine-header.html');
+  const AssetPicker = await import('./components/asset-picker.html');
+  const PropertyTable = await import('./components/property-table.html');
+  const LifecycleBar = await import('./components/lifecycle-bar.html');
+  const CallLog = await import('./components/call-log.html');
+
+  const { DemoEngineSDK } = await import('./demo.sdk.js');
+
+  // Identity, off the class — no engine constructed to read it.
+  const name = DemoEngineSDK.name;
+  const id = DemoEngineSDK.id;
+  const version = DemoEngineSDK.version;
+  const description = DemoEngineSDK.description;
+  document.title = `${name} — engine-specs demo`;
+
+  let sdk;
+  let play;
+  let running = false;
+  let assets = [];
+  let tables = [];
+  let calls = [];
+
+  /** File names by asset key, for the pickers. The bytes live in the engine. */
+  const picked = {};
+
+  const say = (line) => {
+    calls = [line, ...calls].slice(0, 40);
+  };
+
+  const show = (value) => {
+    if (value === undefined) return 'unset';
+    if (value instanceof Uint8Array) return `${value.byteLength} bytes`;
+    return String(value);
+  };
+
+  /** One getter's return value, flattened for the table component. */
+  const toRows = (properties) =>
+    Object.entries(properties).map(([key, property]) => ({
+      key,
+      value: show(property.value),
+      unset: property.value === undefined,
+      description: property.description ?? '',
+      default: property.default === undefined ? '' : show(property.default),
+      enum: property.enum ? property.enum.join(' | ') : '',
+      allowedTypes: property.allowedTypes ? property.allowedTypes.join(' ') : '',
+      live: Boolean(property.live),
+    }));
+
+  /** Reads the live engine — or the factory, when there is not one yet. */
+  const refresh = async () => {
+    const source = play ?? (sdk ??= new DemoEngineSDK());
+    const [config, options, assetProps, storage] = await Promise.all([
+      source.config(),
+      source.options(),
+      source.assets(),
+      source.storage(),
+    ]);
+
+    assets = Object.entries(assetProps).map(([key, property]) => ({
+      key,
+      description: property.description ?? '',
+      accept: (property.allowedTypes ?? []).join(','),
+      accepts: property.allowedTypes ? `accepts ${property.allowedTypes.join(' ')}` : 'any file',
+      fileName: picked[key] ?? '',
+    }));
+
+    tables = [
+      { title: 'config', rows: toRows(config) },
+      { title: 'options', rows: toRows(options) },
+      { title: 'assets', rows: toRows(assetProps) },
+      { title: 'storage', rows: toRows(storage) },
+    ];
+
+    running = Boolean(play);
+  };
+
+  const onSelect = async ({ key, file }) => {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    picked[key] = file.name;
+    sdk ??= new DemoEngineSDK();
+    say(`sdk.assets({ ${key}: Uint8Array(${bytes.byteLength}) })`);
+    sdk.assets({ [key]: bytes });
+    if (key === 'rom') {
+      say(`sdk.options({ fileName: '${file.name}', byteLength: ${file.size} })`);
+      sdk.options({ fileName: file.name, byteLength: file.size });
+    }
+    await refresh();
+  };
+
+  const onRemove = async ({ key }) => {
+    delete picked[key];
+    say(`sdk.assets({ ${key}: undefined })`);
+    sdk?.assets({ [key]: undefined });
+    await refresh();
+  };
+
+  const onStart = async () => {
+    sdk ??= new DemoEngineSDK();
+    say('play = await sdk.mount(stage).start()');
+    // The whole chain in one expression, exactly as the contract advertises it.
+    play = await sdk.mount(document.querySelector('#stage')).start();
+    await refresh();
+  };
+
+  const onRestart = async () => {
+    say('await play.restart()');
+    await play.restart();
+    await refresh();
+  };
+
+  // `pause` and `resume` are this engine's own members, not the contract's.
+  const onPause = async () => {
+    say('play.pause()   // engine-specific, not in the contract');
+    play.pause();
+    await refresh();
+  };
+
+  const onResume = async () => {
+    say('play.resume()  // engine-specific, not in the contract');
+    play.resume();
+    await refresh();
+  };
+
+  const onDestroy = async () => {
+    say('await play.destroy()');
+    await play.destroy();
+    play = undefined;
+    sdk = undefined;
+    for (const key of Object.keys(picked)) delete picked[key];
+    await refresh();
+  };
+
+  say('ready — identity read from the class, no engine constructed yet');
+  await refresh();
+</script>
+
+<style>
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(280px, 340px) 1fr;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  aside section {
+    background: var(--panel, #fff);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  aside h2 {
+    margin: 0 0 0.75rem;
+    font-size: 0.78rem;
+    font-family: var(--mono, monospace);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted, #64748b);
+  }
+
+  #stage {
+    height: 380px;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 4px;
+    overflow: hidden;
+    background: #060910;
+    margin-bottom: 1rem;
+  }
+
+  #stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>

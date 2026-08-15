@@ -26,12 +26,17 @@ export interface EngineStorage { [key: string]: unknown }
  * shapes without an index signature and still satisfy this constraint.
  */
 export interface EnginePayloads {
-  config: object; options: object; assets: object; storage: object;
+  config: object;
+  options: object;
+  assets: object;
+  storage: object;
 }
 
 export interface DefaultPayloads extends EnginePayloads {
-  config: EngineConfig; options: EngineOptions;
-  assets: EngineAssets; storage: EngineStorage;
+  config: EngineConfig;
+  options: EngineOptions;
+  assets: EngineAssets;
+  storage: EngineStorage;
 }
 
 export interface EngineInit<P extends EnginePayloads = DefaultPayloads> {
@@ -46,9 +51,9 @@ export interface EngineInit<P extends EnginePayloads = DefaultPayloads> {
   mount?: HTMLElement;
 }
 
-// ---- Shared fluent getter/setter contract ----
+// ---- The shared fluent surface: the members every carrier exposes ----
 
-export interface EngineDataAccessors<TSelf, P extends EnginePayloads = DefaultPayloads> {
+export interface EngineSurface<TSelf, P extends EnginePayloads = DefaultPayloads> {
   config(): Promise<PropertiesDefinition<P['config']>>;
   config(patch: Partial<P['config']>): TSelf;
   options(): Promise<PropertiesDefinition<P['options']>>;
@@ -63,7 +68,7 @@ export interface EngineDataAccessors<TSelf, P extends EnginePayloads = DefaultPa
 // ---- Public contract each WASM engine must implement ----
 
 export interface EnginePlay<P extends EnginePayloads = DefaultPayloads>
-  extends EngineDataAccessors<PromisePlay<P>, P> {
+  extends EngineSurface<PromisePlay<P>, P> {
   restart(options?: Partial<P['options']>): PromisePlay<P>;
   destroy(): Promise<void>;
 }
@@ -77,13 +82,13 @@ export interface EnginePlay<P extends EnginePayloads = DefaultPayloads>
  * implementer needs that member too, not just the three methods.
  */
 export interface PromisePlay<P extends EnginePayloads = DefaultPayloads>
-  extends Promise<EnginePlay<P>>, EngineDataAccessors<PromisePlay<P>, P> {
+  extends Promise<EnginePlay<P>>, EngineSurface<PromisePlay<P>, P> {
   restart(options?: Partial<P['options']>): PromisePlay<P>;
   destroy(): Promise<void>;
 }
 
 export interface EngineSDK<P extends EnginePayloads = DefaultPayloads>
-  extends EngineDataAccessors<EngineSDK<P>, P> {
+  extends EngineSurface<EngineSDK<P>, P> {
   boot(init?: EngineInit<P>): PromisePlay<P>;
   start(options?: Partial<P['options']>): PromisePlay<P>;
 }

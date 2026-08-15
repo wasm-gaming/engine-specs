@@ -1,0 +1,69 @@
+<!--
+  The lifecycle verbs, labelled with the call each one makes.
+
+  `pause` and `resume` are drawn differently on purpose: they are not in the
+  contract. This engine adds them, and a host driving a different engine may not
+  assume they exist.
+-->
+<div class="bar">
+  <button @click="$emit('start')" :disabled="running">start()</button>
+  <button @click="$emit('restart')" :disabled="!running">restart()</button>
+  <button class="extra" @click="$emit('pause')" :disabled="!running">pause()</button>
+  <button class="extra" @click="$emit('resume')" :disabled="!running">resume()</button>
+  <button @click="$emit('destroy')" :disabled="!running">destroy()</button>
+</div>
+<p class="hint"><span class="extra-dot"></span> beyond the contract — this engine's own members</p>
+
+<script :setup="{
+  running = false,
+}">
+</script>
+
+<style>
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  button {
+    font-family: var(--mono, monospace);
+    font-size: 0.8rem;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text, #0f172a);
+    cursor: pointer;
+  }
+
+  button:hover:not(:disabled) {
+    border-color: var(--accent, #ff007f);
+    color: var(--accent, #ff007f);
+  }
+
+  button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  button.extra,
+  .extra-dot {
+    border-style: dashed;
+  }
+
+  .hint {
+    margin: 0.75rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted, #64748b);
+  }
+
+  .extra-dot {
+    display: inline-block;
+    width: 0.7rem;
+    height: 0.7rem;
+    border: 1px dashed var(--muted, #64748b);
+    border-radius: 2px;
+    vertical-align: -1px;
+  }
+</style>

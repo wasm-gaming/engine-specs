@@ -1,0 +1,137 @@
+<!--
+  The engine's assets, each driven by its own descriptor.
+
+  Everything shown comes from what `assets()` returned: the hint is the descriptor's
+  `description`, and the file dialog's filter is its `allowedTypes`. The page
+  hardcodes nothing about any asset — add a third one to the engine and it appears
+  here on its own.
+-->
+<div class="pickers">
+  <section class="drop" :each="(asset, index) in assets"
+      :class.selected="asset.fileName"
+      @dragover.prevent="dragging = asset.key"
+      @dragleave="dragging = null"
+      @drop.prevent="onDrop($event, asset)"
+      :class.active="dragging === asset.key">
+    <strong>{{ asset.key }}</strong>
+    <p class="hint">{{ asset.description }}</p>
+    <p :class.file-selected="asset.fileName">{{ asset.fileName || asset.accepts }}</p>
+    <div class="picker-actions">
+      <label class="picker">
+        {{ asset.fileName ? 'Change' : 'Pick file' }}
+        <input type="file" :accept="asset.accept" @change="onPick($event, asset)" />
+      </label>
+      <button type="button" :if="asset.fileName" class="remove-btn" @click.stop="$emit('remove', asset)">Remove</button>
+    </div>
+  </section>
+</div>
+
+<script :setup="{
+  assets = [],
+}">
+  let dragging = null;
+
+  const extractFile = (arg) => {
+    if (!arg) return null;
+    if (arg instanceof File) return arg;
+    if (arg.detail instanceof File) return arg.detail;
+    if (arg.target?.files?.item(0)) return arg.target.files.item(0);
+    if (arg.dataTransfer?.files?.item(0)) return arg.dataTransfer.files.item(0);
+    return null;
+  };
+
+  const onDrop = (event, asset) => {
+    dragging = null;
+    const file = extractFile(event);
+    if (file) $emit('select', { key: asset.key, file });
+  };
+
+  const onPick = (event, asset) => {
+    const file = extractFile(event);
+    if (file) $emit('select', { key: asset.key, file });
+  };
+</script>
+
+<style>
+  .pickers {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .drop {
+    border: 1px dashed var(--border, #e2e8f0);
+    border-radius: 4px;
+    padding: 1rem;
+    text-align: center;
+    transition: border-color 200ms ease, background 200ms ease;
+  }
+
+  .drop.active {
+    border-color: var(--accent, #ff007f);
+    background: rgb(255 0 127 / 0.06);
+  }
+
+  .drop.selected {
+    border-style: solid;
+    border-color: var(--accent, #ff007f);
+  }
+
+  .drop strong {
+    display: block;
+    font-family: var(--mono, monospace);
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text, #0f172a);
+  }
+
+  .drop p {
+    margin: 0.35rem 0 0;
+    color: var(--muted, #64748b);
+    font-size: 0.78rem;
+    word-break: break-all;
+  }
+
+  .drop p.hint {
+    font-size: 0.8rem;
+  }
+
+  .drop p.file-selected {
+    color: var(--accent, #ff007f);
+    font-family: var(--mono, monospace);
+    font-weight: 600;
+  }
+
+  .picker-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+  }
+
+  .picker,
+  .remove-btn {
+    display: inline-flex;
+    font-family: var(--mono, monospace);
+    font-size: 0.75rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text, #0f172a);
+    cursor: pointer;
+  }
+
+  .picker:hover {
+    border-color: var(--accent, #ff007f);
+    color: var(--accent, #ff007f);
+  }
+
+  .picker input {
+    display: none;
+  }
+
+  .remove-btn:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+  }
+</style>

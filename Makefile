@@ -1,5 +1,7 @@
 						
-.PHONY: build typecheck typecheck-tests test docs site preview publish publish-dry-run
+.PHONY: build typecheck typecheck-tests typecheck-demo test docs site preview preview-stop publish publish-dry-run
+
+PORT ?= 8020
 
 TSC := ./node_modules/.bin/tsc
 TYPEDOC := ./node_modules/.bin/typedoc
@@ -18,7 +20,12 @@ typecheck:
 typecheck-tests:
 	$(TSC) -p tests/tsconfig.json
 
-test: build typecheck-tests
+# The demo is the second conformance proof: checkJs holds its engine to the same
+# contract, so "the demo conforms" is verified rather than claimed.
+typecheck-demo:
+	$(TSC) -p demo/tsconfig.json
+
+test: build typecheck-tests typecheck-demo
 	node --test tests/*.test.mjs
 
 publish: typecheck test
@@ -27,14 +34,34 @@ publish: typecheck test
 publish-dry-run: typecheck test
 	npm publish --access public --dry-run
 
-# API reference → site/api-docs (config in typedoc.json)
+# API reference → site/ (config in typedoc.json). Typedoc cleans its out dir, so it
+# has to run before the demo is copied in, never after.
 docs:
 	$(TYPEDOC)
 
-# The whole Pages site: demo at the root, reference under /api-docs/
+# The whole Pages site: reference at the root, demo under /demo/
 site: docs
-	cp -R demo/. site/
+	mkdir -p site/demo
+	cp -R demo/. site/demo/
+	rm -f site/demo/tsconfig.json
 	touch site/.nojekyll
 
+# A previous preview left running holds the port, and python's own error for that is
+# a traceback ending in `OSError: [Errno 48]`, which says nothing about what to do.
 preview: site
-	python3 -m http.server 8020 --directory site
+	@lsof -nP -iTCP:$(PORT) -sTCP:LISTEN >/dev/null 2>&1 && { \
+		echo "Port $(PORT) is already serving — a previous \`make preview\` is still running:"; \
+		lsof -nP -iTCP:$(PORT) -sTCP:LISTEN | tail -n +2; \
+		echo "Stop it with \`make preview-stop\`, or use \`make preview PORT=8021\`."; \
+		exit 1; \
+	} || true
+	@echo "Reference: http://localhost:$(PORT)/    Demo: http://localhost:$(PORT)/demo/"
+	python3 -m http.server $(PORT) --directory site
+
+preview-stop:
+	@pids=$$(lsof -ti TCP:$(PORT) -sTCP:LISTEN); \
+	if [ -n "$$pids" ]; then \
+		kill $$pids && echo "Stopped the server on port $(PORT) (pid $$pids)."; \
+	else \
+		echo "Nothing listening on port $(PORT)."; \
+	fi

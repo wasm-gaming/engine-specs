@@ -12,19 +12,27 @@ on:
           - minor
           - major
 
-permissions:
-  contents: write
-  id-token: write
-
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  release:
+  # The same checks a PR runs, against the commit about to be released.
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: build
     runs-on: ubuntu-latest
     environment: production
     if: github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write # push the version commit and tag
+      id-token: write # npm provenance
+
+    outputs:
+      tag: ${{ steps.bump_version.outputs.new_tag }}
 
     steps:
       - name: Checkout
@@ -43,11 +51,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Validate
-        run: |
-          make typecheck
-          make test
-
       - name: Configure Git
         run: |
           git config user.name github-actions[bot]
@@ -62,6 +65,13 @@ jobs:
       - name: Push commit and tag
         run: git push origin HEAD --follow-tags
 
+      # After the bump, so dist/ is built from the version being published.
+      - name: Build
+        run: make build
+
+      - name: Publish to npm
+        run: npm publish --access public --provenance
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -69,5 +79,44 @@ jobs:
           name: ${{ steps.bump_version.outputs.new_tag }}
           generate_release_notes: true
 
-      - name: Publish to npm
-        run: npm publish --access public --provenance
+  # Separate job because Pages wants its own permissions and environment, and
+  # because it must build from the *bumped* commit: typedoc stamps the version onto
+  # every page, so a site built before the bump would publish the old one.
+  pages:
+    needs: publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.publish.outputs.tag }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site (API reference at /, demo at /demo/)
+        run: make site
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
