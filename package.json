@@ -1,6 +1,6 @@
 {
   "name": "@wasm-gaming/engine-specs",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "The wasm-gaming engine contract: the single shared JS API every WASM game/emulator engine and the host app conform to. TypeScript types, no runtime dependencies.",
   "type": "module",
   "types": "./dist/engine-specs.d.ts",
