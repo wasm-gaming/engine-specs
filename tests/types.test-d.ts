@@ -153,7 +153,7 @@ sdk.mount('#stage');
 
 // `destroy()` resolves to nothing: it closes the chain instead of continuing it.
 // @ts-expect-error
-const _dead: EnginePlay<DummyPayloads> = await sdk.boot().destroy();
+const _dead: EnginePlay<DummyPayloads> = await sdk.start().destroy();
 
 // Init is a patch too, and it is still type-checked.
 // @ts-expect-error

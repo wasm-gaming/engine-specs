@@ -247,16 +247,18 @@ class DummySDK implements EngineSDK<DummyPayloads> {
     return this;
   }
 
-  /** Idempotent: a factory governs at most one live engine. */
-  boot(init?: EngineInit<DummyPayloads>): PromisePlay<DummyPayloads> {
-    if (init) this.#init = { ...this.#init, ...init };
+  /**
+   * Bringing the engine up is this engine's own business, not a step the contract
+   * exposes — so it stays private. A factory governs at most one live engine.
+   */
+  #boot(): DummyPlay {
     this.#play ??= new DummyPlay(this.#init);
-    return hydrate(Promise.resolve(this.#play));
+    return this.#play;
   }
 
-  /** `start(p)` is `boot().restart(p)` — literally, so the equivalence cannot drift. */
+  /** The only way in. On a live engine it reopens the session rather than rebuilding. */
   start(options?: Partial<DummyOptions>): PromisePlay<DummyPayloads> {
-    return this.boot().restart(options);
+    return hydrate(Promise.resolve(this.#boot())).restart(options);
   }
 }
 

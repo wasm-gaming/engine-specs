@@ -3,9 +3,9 @@
  * The demo engine, written against the contract in `src/engine-specs.ts`.
  *
  * It is a real implementation, not a mock: the four payloads are closed with named
- * types, every getter returns descriptors, every setter chains, and `boot()` is
- * idempotent. `demo/tsconfig.json` checks it against the contract, so "the demo
- * conforms" is verified rather than claimed.
+ * types, every getter returns descriptors, every setter chains, and a factory
+ * governs at most one live engine. `demo/tsconfig.json` checks it against the
+ * contract, so "the demo conforms" is verified rather than claimed.
  *
  * What used to live in a manifest lives here now:
  * `id`/`version`/`name`/`description` are static on the class, the video geometry is
@@ -305,7 +305,7 @@ export class DemoEngineSDK {
 		if (init) this.#init = { ...init }
 	}
 
-	/** The engine that answers a read before boot: the settings the next one will use. */
+	/** Answers a read before there is an engine: the settings the next one will use. */
 	#pending() {
 		return this.#play ?? new DemoPlay(this.#init)
 	}
@@ -386,23 +386,23 @@ export class DemoEngineSDK {
 	}
 
 	/**
-	 * Idempotent: a factory governs at most one live engine.
-	 * @param {DemoInit} [init]
-	 * @returns {DemoPromisePlay}
+	 * Bringing the engine up is this engine's own business, not a step the contract
+	 * exposes — so it stays private. A factory governs at most one live engine.
+	 * @returns {DemoPlay}
 	 */
-	boot(init) {
-		if (init) this.#init = { ...this.#init, ...init }
+	#boot() {
 		this.#play ??= new DemoPlay(this.#init)
-		return hydrate(Promise.resolve(this.#play))
+		return this.#play
 	}
 
 	/**
-	 * `start(p)` is `boot().restart(p)` — literally, so the equivalence cannot drift.
+	 * The only way in. On a live engine it reopens the session rather than
+	 * rebuilding one.
 	 * @param {Partial<DemoOptions>} [options]
 	 * @returns {DemoPromisePlay}
 	 */
 	start(options) {
-		return this.boot().restart(options)
+		return hydrate(Promise.resolve(this.#boot())).restart(options)
 	}
 }
 

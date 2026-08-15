@@ -89,7 +89,14 @@ export interface PromisePlay<P extends EnginePayloads = DefaultPayloads>
 
 export interface EngineSDK<P extends EnginePayloads = DefaultPayloads>
   extends EngineSurface<EngineSDK<P>, P> {
-  boot(init?: EngineInit<P>): PromisePlay<P>;
+  /**
+   * Bring the engine up and open a session — the only way in.
+   *
+   * A factory governs at most one live engine, so calling it again on a live one
+   * reopens the session rather than building a second engine; that is exactly
+   * {@link EnginePlay.restart}. Whatever an engine has to do before a session can
+   * exist is its own business, done here.
+   */
   start(options?: Partial<P['options']>): PromisePlay<P>;
 }
 
