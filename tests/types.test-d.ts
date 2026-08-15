@@ -6,11 +6,15 @@
 // unused directive. A rule that quietly stops being enforced cannot pass here.
 
 import type {
+  DefaultPayloads,
   EngineInit,
   EnginePayloads,
   EnginePlay,
   EngineSDK,
   EngineSDKConstructor,
+  EngineEvent,
+  EngineListener,
+  EventsOf,
   PromisePlay,
   PropertiesDefinition,
   PropertyDefinition,
@@ -103,6 +107,57 @@ async function host() {
 }
 
 // ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+
+async function listening() {
+  // `EventsOf` maps each event to its **detail**, not to what a listener receives:
+  // the core set is unioned in by the contract, so the engine gets it without
+  // declaring it — and cannot forget it.
+  type Events = EventsOf<DummyPayloads>;
+  type _core = Assert<Equals<Events['start'], Partial<DummyOptions>>>;
+  type _own = Assert<Equals<Events['levelLoaded'], { zone: string }>>;
+
+  // What a listener receives is the envelope, with the detail inside it and the type
+  // that carried it — narrowed to the literal, so one listener can switch on it.
+  type StartEvent = Parameters<EngineListener<Events, 'start'>>[0];
+  type _envelope = Assert<Equals<StartEvent, EngineEvent<'start', Partial<DummyOptions>>>>;
+  type _type = Assert<Equals<StartEvent['type'], 'start'>>;
+
+  // `start` carries the options it opened with, typed — not the `payload: unknown`
+  // the pre-rewrite contract had.
+  const sdk = new DummyEngine().on('start', (event) => event.detail.player);
+
+  // An event with no detail still gets an envelope; its `detail` is just `undefined`.
+  sdk.on('exit', (event) => event.type);
+
+  // Subscribing chains, and keeps the carrier's own type — the factory stays
+  // synchronous.
+  type _chains = Assert<Equals<typeof sdk, EngineSDK<DummyPayloads>>>;
+
+  // The same call as the chain, which is the rule for everything on the surface.
+  const viaInit = new DummyEngine({ on: { error: (event) => console.error(event.detail) } });
+  type _init = Assert<Equals<typeof viaInit, EngineSDK<DummyPayloads>>>;
+
+  // On the live engine it chains as a `PromisePlay`, like every other setter.
+  type _onPlay = Assert<Equals<ReturnType<EnginePlay<DummyPayloads>['on']>, PromisePlay<DummyPayloads>>>;
+  const report = (event: EngineEvent<'error', Error>) => void event.detail.message;
+  const promise: PromisePlay<DummyPayloads> = sdk.start().on('error', report).off('error', report);
+
+  return promise;
+}
+
+// An engine that closes nothing can still emit anything — and the host has to narrow,
+// exactly as it does for an open payload.
+function openEvents(sdk: EngineSDK) {
+  sdk.on('whatever', (event) => event.detail);
+  type _openDetail = Assert<Equals<EventsOf<DefaultPayloads>['whatever'], unknown>>;
+  // The core set survives being open: it is unioned in, not replaced.
+  type _stillCore = Assert<Equals<EventsOf<DefaultPayloads>['exit'], void>>;
+  return sdk;
+}
+
+// ---------------------------------------------------------------------------
 // An engine that closes nothing still works
 // ---------------------------------------------------------------------------
 
@@ -174,4 +229,27 @@ declare const bare: new (init?: EngineInit<DummyPayloads>) => EngineSDK<DummyPay
 // @ts-expect-error
 const _needsIdentity: EngineSDKConstructor<DummyPayloads> = bare;
 
-export { host, openEngine };
+// An event the engine never declared. This is the case that a shared, globally
+// declaration-merged event map could not reject.
+// @ts-expect-error
+sdk.on('inventado', () => undefined);
+
+// The listener is narrowed per event: `start` carries options, not a zone.
+// @ts-expect-error
+sdk.on('start', (event) => event.zone);
+
+// `off` takes the listener, not just the type — dropping every listener for a type
+// would let one component silence another's.
+// @ts-expect-error
+sdk.off('start');
+
+// `emit` is not on the surface. A host must not be able to forge an engine event,
+// which is why the emitter is held privately rather than inherited.
+// @ts-expect-error
+sdk.emit('error', { error: new Error('forged') });
+
+// Init is type-checked the same way the chain is.
+// @ts-expect-error
+const _badHandler: EngineInit<DummyPayloads> = { on: { start: (event) => event.zone } };
+
+export { host, openEngine, listening, openEvents };

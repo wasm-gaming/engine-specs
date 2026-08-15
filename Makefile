@@ -40,10 +40,16 @@ docs:
 	$(TYPEDOC)
 
 # The whole Pages site: reference at the root, demo under /demo/
-site: docs
-	mkdir -p site/demo
+#
+# `site/src/` is not a stray copy of the sources. The demo imports the emitter from
+# `../src/engine-specs.js` as a *value*, and a value import is not erased the way the
+# JSDoc type imports next to it are: the browser really fetches that path. With the
+# demo at `site/demo/`, it resolves to `site/src/`, so the built JS has to be there.
+site: docs build
+	mkdir -p site/demo site/src
 	cp -R demo/. site/demo/
 	rm -f site/demo/tsconfig.json
+	cp dist/engine-specs.js site/src/engine-specs.js
 	touch site/.nojekyll
 
 # A previous preview left running holds the port, and python's own error for that is

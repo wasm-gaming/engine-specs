@@ -71,6 +71,27 @@
     calls = [line, ...calls].slice(0, 40);
   };
 
+  /**
+   * The only place the factory is built, so the page subscribes exactly once — and
+   * does it in the constructor, which is the same call as `.on(type, listener)`.
+   *
+   * The handlers outlive every engine this factory opens: `start` fires again on each
+   * `restart()`, `exit` on `destroy()`, and `pause`/`resume` come from methods the
+   * contract does not know about. Nothing below re-subscribes.
+   *
+   * Each one receives an event, not the payload: what it carries is `detail`.
+   */
+  const engine = () =>
+    (sdk ??= new DemoEngineSDK({
+      on: {
+        start: ({ detail }) => say(`▸ start   fileName: ${detail.fileName ?? 'unset'}`),
+        pause: ({ detail }) => say(`▸ pause   owner: ${detail.owner}`),
+        resume: ({ detail }) => say(`▸ resume  owner: ${detail.owner}`),
+        error: ({ detail }) => say(`▸ error   ${detail.message}`),
+        exit: ({ type }) => say(`▸ ${type}`),
+      },
+    }));
+
   const show = (value) => {
     if (value === undefined) return 'unset';
     if (value instanceof Uint8Array) return `${value.byteLength} bytes`;
@@ -92,7 +113,7 @@
 
   /** Reads the live engine — or the factory, when there is not one yet. */
   const refresh = async () => {
-    const source = play ?? (sdk ??= new DemoEngineSDK());
+    const source = play ?? engine();
     const [config, options, assetProps, storage] = await Promise.all([
       source.config(),
       source.options(),
@@ -121,7 +142,7 @@
   const onSelect = async ({ key, file }) => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     picked[key] = file.name;
-    sdk ??= new DemoEngineSDK();
+    engine();
     say(`sdk.assets({ ${key}: Uint8Array(${bytes.byteLength}) })`);
     sdk.assets({ [key]: bytes });
     if (key === 'rom') {
@@ -139,7 +160,7 @@
   };
 
   const onStart = async () => {
-    sdk ??= new DemoEngineSDK();
+    engine();
     say('play = await sdk.mount(stage).start()');
     // The whole chain in one expression, exactly as the contract advertises it.
     play = await sdk.mount(document.querySelector('#stage')).start();
@@ -152,15 +173,16 @@
     await refresh();
   };
 
-  // `pause` and `resume` are this engine's own members, not the contract's.
+  // The methods are this engine's own; the `pause`/`resume` they emit are the
+  // contract's — which is why the log shows a ▸ line the page never wrote here.
   const onPause = async () => {
-    say('play.pause()   // engine-specific, not in the contract');
+    say('play.pause()   // engine-specific method, contract event');
     play.pause();
     await refresh();
   };
 
   const onResume = async () => {
-    say('play.resume()  // engine-specific, not in the contract');
+    say('play.resume()  // engine-specific method, contract event');
     play.resume();
     await refresh();
   };

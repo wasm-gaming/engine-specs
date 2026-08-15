@@ -1,4 +1,5 @@
-// What a types-only package can still get wrong at runtime: shipping the wrong files.
+// What a package can get wrong regardless of what its code says: shipping the wrong
+// files.
 //
 // This exists because the previous suite passed 32 tests green against `dist/`
 // artifacts whose sources had been deleted — and `make publish` is gated on exactly
@@ -53,8 +54,8 @@ test('dist holds no artifact whose source has been deleted', () => {
   assert.deepEqual(stale, [], `dist/ contains artifacts with no source in src/: ${stale.join(', ')}`);
 });
 
-// The contract is types. Twelve engines depend on it; anything it pulls in, they
-// pull in too.
+// The contract is almost entirely types, and the one class it ships has no
+// dependencies. Twelve engines depend on this; anything it pulls in, they pull in too.
 test('the package declares no runtime dependencies', () => {
   assert.deepEqual(Object.keys(pkg.dependencies ?? {}), []);
 });
@@ -71,7 +72,40 @@ test('the built contract exposes the documented surface', async () => {
     'PromisePlay',
     'EngineSDK',
     'EngineSDKConstructor',
+    'CoreEvents',
+    'EventsOf',
+    'EventListeners',
+    'EngineEvent',
+    'EngineListener',
+    'EventEmitter',
+    'PropertySpec',
+    'PropertiesSpec',
+    'EngineSpec',
+    'EnginePlayBase',
+    'EngineSDKBase',
+    'hydratePlay',
   ]) {
     assert.match(types, new RegExp(`\\b${name}\\b`), `${name} is missing from ${pkg.types}`);
   }
+});
+
+// These are the members that have to survive compilation as *code*. Everything else
+// in this package erases to nothing, so a regression turning one back into a type —
+// or a build emitting only declarations — would leave every other test in this file
+// green while engines importing them got `undefined`.
+test('the runtime members are emitted as code, not erased', async () => {
+  const js = join(root, pkg.exports['.'].import);
+  const source = readFileSync(js, 'utf8');
+  const module = await import(js);
+
+  for (const name of ['EventEmitter', 'EnginePlayBase', 'EngineSDKBase']) {
+    assert.match(source, new RegExp(`class ${name}\\b`), `${js} has no ${name} class`);
+    assert.equal(typeof module[name], 'function', `${name} is not exported as a value`);
+  }
+  assert.equal(typeof module.hydratePlay, 'function');
+
+  const events = new module.EventEmitter();
+  assert.equal(typeof events.on, 'function');
+  assert.equal(typeof events.off, 'function');
+  assert.equal(typeof events.emit, 'function');
 });
