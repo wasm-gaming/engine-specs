@@ -1,0 +1,79 @@
+/*
+  The reference's toolbar: the search trigger sits beside the title, not out at the far
+  right with the menu.
+
+  Deliberately unlayered. Everything TypeDoc ships lives inside `@layer typedoc`, so an
+  ordinary rule here beats it whatever its specificity — no `!important`, and nothing to
+  re-tune when TypeDoc renumbers its own selectors.
+
+  Wired through `"customCss"` in typedoc.json, which copies this to assets/custom.css.
+*/
+
+/*
+  `margin-right: auto` is the whole layout: TypeDoc puts it on the title, which is what
+  pushes everything else right. Move it onto the trigger and the trigger follows the
+  title while the links and the menu stay flush right.
+
+  `order` is visual only — the tab order stays title → links → search. A DOM move would
+  keep the two in step, but it would depend on a script running and on this markup
+  surviving a TypeDoc upgrade.
+
+  `dialog#tsd-search` needs no rule: it is opened with `showModal()`, so it is in the top
+  layer and out of this flex flow, and a closed dialog is `display: none`.
+*/
+.tsd-toolbar-contents > .title {
+  order: 1;
+  margin-right: 0.5rem;
+}
+
+.tsd-toolbar-contents > #tsd-search-trigger {
+  order: 2;
+  margin-right: auto;
+}
+
+.tsd-toolbar-contents > #tsd-toolbar-links {
+  order: 3;
+}
+
+.tsd-toolbar-contents > #tsd-toolbar-menu-trigger {
+  order: 4;
+}
+
+/*
+  The gap under the toolbar belongs to the columns, not to the grid.
+
+  Zeroing the variable rather than the `margin` is what keeps the rest of TypeDoc's
+  arithmetic honest: the same value appears in `.container-main`'s `min-height`, in the
+  sticky menus' `top`, and in their `max-height`. Overriding `margin` alone would leave
+  three calculations subtracting a margin that is no longer there.
+*/
+.container-main {
+  --dim-container-main-margin-y: 0rem;
+}
+
+/* `padding-block`, so the inline padding each column already has survives. */
+.col-content {
+  padding-block: 2rem;
+}
+
+/*
+  The menus get theirs only where they are sticky columns. Below 770px they live inside
+  `.col-sidebar`, which is a slide-in drawer with padding of its own, and a second helping
+  would just push the first item down.
+
+  `box-sizing` because TypeDoc sets it per component rather than globally, and these two
+  are not among them: their `max-height` is meant to be the whole box, padding included,
+  or a stuck menu runs past the bottom of the viewport.
+*/
+@media (min-width: 770px) {
+  .page-menu,
+  .site-menu {
+    box-sizing: border-box;
+    padding-block: 2rem;
+  }
+
+  /* The padding above replaces this, which would otherwise sit on top of it. */
+  .site-menu {
+    margin-top: 0;
+  }
+}

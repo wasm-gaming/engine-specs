@@ -1,0 +1,31 @@
+<!--
+  The reference's own toolbar, reused rather than imitated: the class names are
+  TypeDoc's and so is the stylesheet that paints them, which index.html loads from
+  `../assets/style.css`. Two pages, one bar, and nothing here to keep in sync by hand.
+
+  What is missing is `button#tsd-search-trigger`. This page carries no search index and
+  does not load TypeDoc's `main.js`, so the button would open nothing — and a control
+  that does nothing is worse than a control that isn't there.
+
+  The version is *given* to this component, never written into it: TypeDoc reads it from
+  package.json, and a copy hard-coded here would drift the first time it changed. With
+  nothing to show — a bare `demo/` checkout — the bar shows the name alone rather than a
+  wrong number.
+-->
+<header class="tsd-page-toolbar">
+  <div class="tsd-toolbar-contents container">
+    <a class="title" :href="referenceHref">{{ title }}<span :if="version"> - v{{ version }}</span></a>
+    <div id="tsd-toolbar-links">
+      <a :href="referenceHref">Reference</a>
+      <a :href="repositoryHref">GitHub</a>
+    </div>
+  </div>
+</header>
+
+<script :setup="{
+  title = '@wasm-gaming/engine-specs',
+  version = '',
+  referenceHref = '../',
+  repositoryHref = 'https://github.com/wasm-gaming/engine-specs',
+}">
+</script>

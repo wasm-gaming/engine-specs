@@ -7,22 +7,32 @@
 */
 
 :root {
-  --bg: #f8fafc;
-  --panel: #ffffff;
-  --border: #e2e8f0;
-  --text: #0f172a;
-  --muted: #64748b;
+  /*
+    The reference's palette, read off the variables TypeDoc defines, so the theme
+    switch in the docs sidebar drives this page too — there is no second switch here
+    to disagree with it, and no `prefers-color-scheme` block either: TypeDoc's `os`
+    theme already means "follow the system".
+
+    `--accent` stays the demo's own. It marks what the page does, not what the site
+    is, and the reference has no equivalent to borrow.
+  */
+  --bg: var(--color-background);
+  --panel: var(--color-background-secondary);
+  --border: var(--color-accent);
+  --text: var(--color-text);
+  --muted: var(--color-text-aside);
   --accent: #ff007f;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #060910;
-    --panel: #0f172a;
-    --border: #1e293b;
-    --text: #e2e8f0;
-    --muted: #94a3b8;
+/*
+  TypeDoc hides the toolbar links below 769px because its menu trigger takes over
+  there. This page has no menu, so hiding them would leave no way back to the
+  reference. Unlayered, so it wins.
+*/
+@media (max-width: 769px) {
+  #tsd-toolbar-links {
+    display: flex;
   }
 }
 

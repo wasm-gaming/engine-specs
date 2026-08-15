@@ -4,58 +4,51 @@
   This is what replaced the manifest: `id`, `version`, `name` and `description` are
   static members of the SDK constructor, so a launcher can list engines without
   booting one.
+
+  It sits at the foot of the page and says nothing about the site: the toolbar above
+  carries that, which is why neither the link back to the reference nor a page-titling
+  `h1` is here any more. The name still reaches the reader — as the document title,
+  written from the same static member.
 -->
-<header>
+<footer class="engine-header">
   <div>
-    <h1>{{ name }} <code>{{ id }}</code></h1>
     <p>{{ description }}</p>
   </div>
   <div class="right">
     <span class="pill">v{{ version }}</span>
-    <a class="pill link" :href="referenceHref">API reference</a>
   </div>
-</header>
+</footer>
 
 <script :setup="{
-  name,
-  id,
   version,
   description = '',
-  referenceHref = '../',
 }">
 </script>
 
 <style>
-  header {
+  /*
+    Scoped to a class, not to the element. A component's styles land in the page's own
+    <style>, unscoped — so a bare `header {}` here reached the site toolbar above and
+    made a flex container of it, which centred the whole bar. Class selectors keep a
+    component's look to the component.
+  */
+  .engine-header {
     display: flex;
     flex-wrap: wrap;
     gap: 1rem;
     align-items: center;
     justify-content: space-between;
     padding: 1.25rem 1.5rem;
-    border-bottom: 1px solid var(--border, #e2e8f0);
+    border-top: 1px solid var(--border, #e2e8f0);
     background: var(--panel, #fff);
   }
 
-  h1 {
+  .engine-header p {
     margin: 0;
-    font-size: 1.25rem;
-    letter-spacing: 0.02em;
-    color: var(--text, #0f172a);
-  }
-
-  code {
-    font-family: var(--mono, monospace);
-    font-size: 0.75em;
     color: var(--muted, #64748b);
   }
 
-  p {
-    margin: 0.25rem 0 0;
-    color: var(--muted, #64748b);
-  }
-
-  .right {
+  .engine-header .right {
     display: flex;
     gap: 0.5rem;
   }
@@ -70,9 +63,5 @@
     background: rgb(255 0 127 / 0.08);
     text-transform: uppercase;
     white-space: nowrap;
-  }
-
-  .link {
-    text-decoration: none;
   }
 </style>

@@ -4,7 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>engine-specs demo</title>
+    <!--
+      TypeDoc's stylesheet paints the toolbar and carries the palette the demo maps
+      itself onto. The demo only ever runs from `site/demo/` — `demo.sdk.js` imports
+      `../src/engine-specs.js` as a value, which is why `make site` puts the built JS
+      there — so this path always resolves.
+
+      Order matters, but only downwards: everything TypeDoc ships is inside
+      `@layer typedoc`, so demo.css and every component's styles win over it without
+      trying.
+    -->
+    <link rel="stylesheet" href="../assets/style.css" />
     <link rel="stylesheet" href="./demo.css" />
+    <script>
+      // The theme the reference was left on. TypeDoc writes this key; both pages read
+      // it, so one switch in the docs sidebar drives both. `os` is TypeDoc's own
+      // default and means "follow the system".
+      document.documentElement.dataset.theme = localStorage.getItem('tsd-theme') || 'os'
+    </script>
   </head>
   <body>
     <main></main>

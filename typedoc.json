@@ -9,6 +9,7 @@
   "readme": "README.md",
   "githubPages": true,
   "hideGenerator": true,
+  "customCss": "typedoc.css",
   "navigationLinks": {
     "Demo": "./demo/",
     "GitHub": "https://github.com/wasm-gaming/engine-specs"

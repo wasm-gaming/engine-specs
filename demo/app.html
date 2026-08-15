@@ -4,7 +4,9 @@
   It drives the engine only through the contract, and every panel is painted from
   something the contract handed back:
 
-  - the header is the class's static identity, read before any engine exists;
+  - the toolbar is the reference's own, so the two pages are one site;
+  - the footer under it all is the class's static identity, read before any engine
+    exists — and the document title is the same reading;
   - the pickers get their file filter from each asset descriptor's `allowedTypes`;
   - the tables are `config()`, `options()`, `assets()` and `storage()` rendered as
     they arrive — one component, and not one key name written on this side.
@@ -13,22 +15,16 @@
   there is no mount bookkeeping here.
 -->
 
-<EngineHeader :name="name" :id="id" :version="version" :description="description" />
+<SiteToolbar :version="packageVersion" />
 
 <div class="layout">
   <aside>
-    <section>
+    <section class="panel">
       <h2>assets</h2>
       <AssetPicker :assets="assets" @select="onSelect" @remove="onRemove" />
     </section>
 
-    <section>
-      <h2>lifecycle</h2>
-      <LifecycleBar :running="running" @start="onStart" @restart="onRestart"
-        @pause="onPause" @resume="onResume" @destroy="onDestroy" />
-    </section>
-
-    <section>
+    <section class="panel">
       <h2>calls</h2>
       <CallLog :entries="calls" />
     </section>
@@ -37,11 +33,22 @@
   <div>
     <!-- The engine is handed this element and appends its own canvas to it. -->
     <div id="stage"></div>
+
+    <!-- Under the picture and as wide as it: the verbs act on what is above them. -->
+    <section class="panel">
+      <h2>lifecycle</h2>
+      <LifecycleBar :running="running" @start="onStart" @restart="onRestart"
+        @pause="onPause" @resume="onResume" @destroy="onDestroy" />
+    </section>
+
     <PropertyTable :tables="tables" />
   </div>
 </div>
 
+<EngineHeader :version="version" :description="description" />
+
 <script :setup="{}">
+  const SiteToolbar = await import('./components/site-toolbar.html');
   const EngineHeader = await import('./components/engine-header.html');
   const AssetPicker = await import('./components/asset-picker.html');
   const PropertyTable = await import('./components/property-table.html');
@@ -50,9 +57,19 @@
 
   const { DemoEngineSDK } = await import('./demo.sdk.js');
 
+  // The *package* version, for the toolbar — not the engine's. `make site` writes this
+  // file next to the demo from package.json, which is the same source TypeDoc reads, so
+  // the two bars cannot disagree. A bare `demo/` checkout has no such file, and the bar
+  // then shows the package name alone.
+  let packageVersion = '';
+  try {
+    ({ version: packageVersion } = await import('./package-version.js'));
+  } catch {
+    packageVersion = '';
+  }
+
   // Identity, off the class — no engine constructed to read it.
   const name = DemoEngineSDK.name;
-  const id = DemoEngineSDK.id;
   const version = DemoEngineSDK.version;
   const description = DemoEngineSDK.description;
   document.title = `${name} — engine-specs demo`;
@@ -215,7 +232,8 @@
     }
   }
 
-  aside section {
+  /* A class, not `aside section`: the lifecycle panel lives in the other column now. */
+  .panel {
     background: var(--panel, #fff);
     border: 1px solid var(--border, #e2e8f0);
     border-radius: 4px;
@@ -223,7 +241,7 @@
     margin-bottom: 1rem;
   }
 
-  aside h2 {
+  .panel h2 {
     margin: 0 0 0.75rem;
     font-size: 0.78rem;
     font-family: var(--mono, monospace);

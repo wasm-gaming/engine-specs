@@ -50,6 +50,10 @@ site: docs build
 	cp -R demo/. site/demo/
 	rm -f site/demo/tsconfig.json
 	cp dist/engine-specs.js site/src/engine-specs.js
+	# The demo's toolbar names the package version, as the reference's does. It cannot
+	# read package.json — that file is not part of the site — so the one source both
+	# bars quote is written next to the demo here, and never checked in.
+	node -p "'export const version = ' + JSON.stringify(require('./package.json').version) + ';'" > site/demo/package-version.js
 	touch site/.nojekyll
 
 # A previous preview left running holds the port, and python's own error for that is
