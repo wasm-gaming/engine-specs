@@ -46,12 +46,14 @@ class DummyPlay implements EnginePlay<DummyPayloads> {
   #options: DummyOptions = { player: 'sonic', slot: 0 };
   #assets: Partial<DummyAssets> = {};
   #storage: DummyStorage = { namespace: 'dummy' };
+  #mount: HTMLElement | undefined;
 
   constructor(init?: EngineInit<DummyPayloads>) {
     if (init?.config) Object.assign(this.#config, init.config);
     if (init?.options) Object.assign(this.#options, init.options);
     if (init?.assets) Object.assign(this.#assets, init.assets);
     if (init?.storage) Object.assign(this.#storage, init.storage);
+    this.#mount = init?.mount;
   }
 
   config(): Promise<PropertiesDefinition<DummyConfig>>;
@@ -125,6 +127,12 @@ class DummyPlay implements EnginePlay<DummyPayloads> {
     return hydrate(Promise.resolve(this));
   }
 
+  /** Where the picture goes. Reparenting a live engine is legal; re-mounting is not. */
+  mount(target: HTMLElement): PromisePlay<DummyPayloads> {
+    this.#mount = target;
+    return hydrate(Promise.resolve(this));
+  }
+
   restart(options?: Partial<DummyOptions>): PromisePlay<DummyPayloads> {
     // The payload is cumulative: one current payload, merged flat, one level.
     if (options) Object.assign(this.#options, options);
@@ -133,6 +141,7 @@ class DummyPlay implements EnginePlay<DummyPayloads> {
 
   async destroy(): Promise<void> {
     this.#assets = {};
+    this.#mount = undefined;
   }
 }
 
@@ -173,6 +182,7 @@ function hydrate(inner: Promise<DummyPlay>): PromisePlay<DummyPayloads> {
         ? inner.then((play) => play.storage())
         : chain((play) => play.storage(patch))) as PromisePlay<DummyPayloads>['storage'],
 
+    mount: (target: HTMLElement) => chain((play) => play.mount(target)),
     restart: (options?: Partial<DummyOptions>) => chain((play) => play.restart(options)),
     destroy: () => inner.then((play) => play.destroy()),
   };
@@ -182,16 +192,27 @@ function hydrate(inner: Promise<DummyPlay>): PromisePlay<DummyPayloads> {
 // ---- The factory ----
 
 class DummySDK implements EngineSDK<DummyPayloads> {
-  readonly id = 'dummy';
-  readonly version = '1.0.0';
-  readonly name = 'Dummy engine';
-  readonly description = 'Reference implementation of the engine-specs contract.';
+  static readonly id = 'dummy';
+  static readonly version = '1.0.0';
+  static readonly name = 'Dummy engine';
+  static readonly description = 'Reference implementation of the engine-specs contract.';
 
   #init: EngineInit<DummyPayloads> = {};
   #play: DummyPlay | undefined;
 
   constructor(init?: EngineInit<DummyPayloads>) {
     if (init) this.#init = { ...init };
+  }
+
+  /**
+   * Where the engine will be seen. Recorded now, applied when the engine exists —
+   * and it lands in the same `#init` as everything else, which is what makes
+   * `new Sdk({ mount: el })` and `new Sdk().mount(el)` the same call.
+   */
+  mount(target: HTMLElement): this {
+    this.#init.mount = target;
+    if (this.#play) this.#play.mount(target);
+    return this;
   }
 
   config(): Promise<PropertiesDefinition<DummyConfig>>;

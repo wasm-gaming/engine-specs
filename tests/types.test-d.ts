@@ -10,6 +10,7 @@ import type {
   EnginePayloads,
   EnginePlay,
   EngineSDK,
+  EngineSDKConstructor,
   PromisePlay,
   PropertiesDefinition,
   PropertyDefinition,
@@ -48,11 +49,13 @@ type _inner = Assert<Equals<ConfigProps['scanlines']['value'], boolean | undefin
 // ---------------------------------------------------------------------------
 
 async function host() {
+  // Identity is read off the class — a launcher lists engines without constructing
+  // one, which is the whole reason it does not live on the instance.
+  type _id = Assert<Equals<typeof DummyEngine.id, string>>;
+  type _version = Assert<Equals<typeof DummyEngine.version, string>>;
+
   // Init takes a patch, not the whole payload: `region` alone, no `scanlines`.
   const sdk = new DummyEngine({ config: { region: 'eu' } });
-
-  // Identity, without booting anything.
-  type _id = Assert<Equals<typeof sdk.id, string>>;
 
   // Reading: exact types survive the round trip.
   const config = await sdk.config();
@@ -63,9 +66,26 @@ async function host() {
   const chained = sdk.config({ scanlines: true }).options({ slot: 1 });
   type _chain = Assert<Equals<typeof chained, EngineSDK<DummyPayloads>>>;
 
+  // `mount` is part of the same fluent surface, so it chains on both carriers — and
+  // each one returns its own: the factory stays synchronous, the live engine does not.
+  const stage = document.createElement('div');
+  type _mountSdk = Assert<Equals<ReturnType<EngineSDK<DummyPayloads>['mount']>, EngineSDK<DummyPayloads>>>;
+  type _mountPlay = Assert<Equals<ReturnType<EnginePlay<DummyPayloads>['mount']>, PromisePlay<DummyPayloads>>>;
+  sdk.mount(stage).config({ region: 'jp' });
+
+  // And the rule holds in both directions: whatever the chain takes, the constructor
+  // takes. These two are the same call.
+  const mountedUpFront = new DummyEngine({ mount: stage, config: { region: 'jp' } });
+  const mountedByChain = new DummyEngine({ config: { region: 'jp' } }).mount(stage);
+  type _init = Assert<Equals<typeof mountedUpFront, EngineSDK<DummyPayloads>>>;
+  type _same = Assert<Equals<typeof mountedByChain, EngineSDK<DummyPayloads>>>;
+
   // The chain crosses into the live engine and keeps going.
   const play: EnginePlay<DummyPayloads> = await sdk.start({ player: 'tails' });
-  const promise: PromisePlay<DummyPayloads> = play.restart({ slot: 2 }).options({ player: 'sonic' });
+  const promise: PromisePlay<DummyPayloads> = play
+    .restart({ slot: 2 })
+    .mount(stage)
+    .options({ player: 'sonic' });
 
   // Reading closes the chain: a plain promise of descriptors, not another link.
   const options = await promise.options();
@@ -126,6 +146,11 @@ sdk.config({ player: 'sonic' });
 // @ts-expect-error
 props.region.enum?.push('br');
 
+// `mount` takes the element, not a selector: resolving it is the host's job, and a
+// typo in a string would only surface at runtime.
+// @ts-expect-error
+sdk.mount('#stage');
+
 // `destroy()` resolves to nothing: it closes the chain instead of continuing it.
 // @ts-expect-error
 const _dead: EnginePlay<DummyPayloads> = await sdk.boot().destroy();
@@ -137,5 +162,16 @@ const _bad: EngineInit<DummyPayloads> = { config: { region: 'br' } };
 // The payload bundle cannot be satisfied by something that is not an object.
 // @ts-expect-error
 interface _BadPayloads extends EnginePayloads { config: string }
+
+// Identity is not on the instance. Reading it there is the mistake this move exists
+// to prevent: it would mean constructing an engine just to ask its name.
+// @ts-expect-error
+sdk.id;
+
+// And a constructor without it does not satisfy the contract, so an engine cannot
+// quietly forget to declare who it is.
+declare const bare: new (init?: EngineInit<DummyPayloads>) => EngineSDK<DummyPayloads>;
+// @ts-expect-error
+const _needsIdentity: EngineSDKConstructor<DummyPayloads> = bare;
 
 export { host, openEngine };

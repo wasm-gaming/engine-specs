@@ -4,7 +4,7 @@
   "out": "site/api-docs",
   "name": "@wasm-gaming/engine-specs",
   "includeVersion": true,
-  "readme": "docs/SITE-HOME.md",
+  "readme": "none",
   "githubPages": true,
   "hideGenerator": true,
   "navigationLinks": {
@@ -19,8 +19,6 @@
     "compactFolders": true
   },
   "intentionallyNotExported": [],
-  "customJs": "docs/assets/typedoc-custom.js",
-  "customCss": "docs/assets/typedoc-custom.css",
   "customFooterHtml": "The engine contract for the wasm-gaming ecosystem · <a href=\"https://github.com/wasm-gaming/engine-specs\">Source</a> · MIT",
   "ignoredHighlightLanguages": ["mermaid"]
 }

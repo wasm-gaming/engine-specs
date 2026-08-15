@@ -4,8 +4,7 @@ export interface PropertyDefinition<Value = unknown> {
   value: Value;
   default?: Value;
   description?: string;
-  /** Absent means `true`. `false` = changing it needs a `restart()`. */
-  live?: boolean;
+  live?: boolean; // Absent means `false`. `true` = changing it applies to current play session.
   enum?: readonly Value[];
   allowedTypes?: readonly string[];
 }
@@ -40,6 +39,11 @@ export interface EngineInit<P extends EnginePayloads = DefaultPayloads> {
   options?: Partial<P['options']>;
   assets?: Partial<P['assets']>;
   storage?: Partial<P['storage']>;
+  /**
+   * Not a `Partial`, unlike the four above: the payloads are patches merged onto a
+   * cumulative state, a mount target is a single value that replaces.
+   */
+  mount?: HTMLElement;
 }
 
 // ---- Shared fluent getter/setter contract ----
@@ -53,6 +57,7 @@ export interface EngineDataAccessors<TSelf, P extends EnginePayloads = DefaultPa
   assets(patch: Partial<P['assets']>): TSelf;
   storage(): Promise<PropertiesDefinition<P['storage']>>;
   storage(patch: Partial<P['storage']>): TSelf;
+  mount(target: HTMLElement): TSelf;
 }
 
 // ---- Public contract each WASM engine must implement ----
@@ -79,19 +84,22 @@ export interface PromisePlay<P extends EnginePayloads = DefaultPayloads>
 
 export interface EngineSDK<P extends EnginePayloads = DefaultPayloads>
   extends EngineDataAccessors<EngineSDK<P>, P> {
-
-  /** Stable engine id, e.g. "rsdkv4" | "fbneo" | "blastem" | "jgenesis" | "smw". */
-  id: string;
-  /** SemVer of this engine build/contract implementation. */
-  version: string;
-  /** Human-readable name. */
-  name?: string;
-  description?: string;
-  
   boot(init?: EngineInit<P>): PromisePlay<P>;
   start(options?: Partial<P['options']>): PromisePlay<P>;
 }
 
+/**
+ * Identity lives on the constructor, not on an instance: a launcher listing engines
+ * reads `Rsdkv4SDK.id` from the imported class, without constructing anything.
+ */
 export interface EngineSDKConstructor<P extends EnginePayloads = DefaultPayloads> {
+  /** Stable engine id, e.g. "rsdkv4" | "fbneo" | "blastem" | "jgenesis" | "smw". */
+  readonly id: string;
+  /** SemVer of this engine build/contract implementation. */
+  readonly version: string;
+  /** Human-readable name. */
+  readonly name?: string;
+  readonly description?: string;
+
   new (init?: EngineInit<P>): EngineSDK<P>;
 }
