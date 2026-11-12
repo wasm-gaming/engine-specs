@@ -15,7 +15,7 @@ Menus react to actions, never to raw keys or buttons.
 | `accept` | A (0) | Enter, Space |
 | `back` | B (1) | Escape, Backspace |
 | `more` — secondary menu, details | Y (3), X (2) | Tab, V, ContextMenu |
-| `menu` — pause / main menu | Start (9), Select + Start | F1 |
+| `menu` — pause / main menu | Start (9) in menus; Select + Start always | F1; Escape in game |
 | `prev` / `next` — tabs, pages | LB (4) / RB (5) | Q / E |
 
 Directions repeat while held: first after **380 ms**, then every **110 ms**. Buttons never repeat.
@@ -30,11 +30,13 @@ Select + Start pressed together is `menu`, and then neither fires on its own.
    straight in line. Grids wrap only where the layout makes the wrap obvious.
 3. **`accept` acts on the focused element. `back` goes up one level.** At the top level of a game's
    menus, `back` asks before leaving the game; it never loses progress silently.
-4. **`menu` opens and closes the pause menu** from anywhere in the game. The pause menu always
-   offers, in this order: Continue, the engine's own entries (load / save state, options…), and
-   Exit to the library.
-5. **While a menu is open the game gets no input**, and while the game runs the menus get none:
-   `input.suspend()` / `input.resume()`; the engine is paused (`play.pause(owner)`).
+4. **`menu` opens and closes the pause menu** from anywhere in the game. In game that is
+   **Select + Start** (gamepad) or **Escape** (keyboard) — plain Start belongs to the game (it starts
+   it, pauses it natively…). The pause menu always offers, in this order: Continue, the engine's own
+   entries (load / save state, options…), and Exit to the library.
+5. **While a menu is open the game gets no input**, and while the game runs the menus get nothing
+   but the menu combo: `input.suspend()` / `input.resume()`; the engine is paused
+   (`play.pause(owner)`) whenever a menu is open.
 6. **`more` opens what is secondary** for the focused element (versions, details, delete). It never
    performs a destructive action directly; deletion asks for confirmation, defaulting to No.
 7. **Text never needs a keyboard to proceed.** Anything typed (names, filters) has a gamepad path.

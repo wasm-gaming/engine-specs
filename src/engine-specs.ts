@@ -814,12 +814,17 @@ export interface UiInputOptions {
   now?: () => number;
   /** Frame scheduler for gamepad polling. Default: `requestAnimationFrame`; `null` = poll manually. */
   schedule?: ((poll: () => void) => unknown) | null;
+  /** Keys that still open the menu while suspended (in game). Default `['Escape', 'F1']`. */
+  menuKeys?: readonly string[];
 }
 
 export interface UiInput {
   /** Subscribe; returns the unsubscribe function. */
   on(listener: UiActionListener): () => void;
-  /** Stop delivering (e.g. while the game runs); keys are no longer swallowed. */
+  /**
+   * The game has the controls: nothing is delivered or swallowed, except the in-game
+   * menu combo — Select + Start, and the `menuKeys` (Escape) — which arrives as `menu`.
+   */
   suspend(): void;
   resume(): void;
   readonly suspended: boolean;
@@ -844,14 +849,16 @@ const isEditable = (target: EventTarget | null): boolean => {
  * Keyboard: `keydown` mapped through {@link UI_KEYMAP} (keys typed into form fields
  * are left alone). Gamepads: polled each frame through {@link UI_PADMAP} and the left
  * stick; directions repeat with {@link UI_REPEAT}; Select + Start together is `menu`
- * (and then neither fires on its own). While {@link UiInput.suspend | suspended}
- * nothing is delivered and nothing is swallowed — the game gets every input.
+ * (and then neither fires on its own). While {@link UiInput.suspend | suspended} (in
+ * game) the game gets every input except the menu combo: Select + Start and the
+ * `menuKeys` (Escape, F1) still arrive, as `menu`, so the pause menu can always open.
  */
 export function createInput(options: UiInputOptions = {}): UiInput {
   const target = options.target ?? (globalThis as unknown as EventTarget);
   const capture = options.capture ?? true;
   const swallow = options.swallow ?? true;
   const keymap = options.keymap ?? UI_KEYMAP;
+  const menuKeys = new Set(options.menuKeys ?? ['Escape', 'F1']);
   const padmap = options.padmap ?? UI_PADMAP;
   const now = options.now ?? (() => globalThis.performance?.now() ?? Date.now());
   const gamepads =
@@ -873,8 +880,15 @@ export function createInput(options: UiInputOptions = {}): UiInput {
   };
 
   const onKey = (event: Event): void => {
-    if (suspended || destroyed) return;
+    if (destroyed) return;
     const key = event as KeyboardEvent;
+    if (suspended) {
+      if (!menuKeys.has(key.key) || key.repeat) return;
+      key.preventDefault();
+      key.stopPropagation();
+      fire('menu', { source: 'keyboard', repeat: false });
+      return;
+    }
     if (isEditable(key.target) && key.key !== 'Escape') return;
     const action = keymap[key.key];
     if (!action) return;
@@ -914,7 +928,9 @@ export function createInput(options: UiInputOptions = {}): UiInput {
       const state = held.get(action);
       if (!state) {
         held.set(action, { since: t, last: t });
-        if (!suspended) fire(action, { source: 'gamepad', repeat: false });
+        // In game only the Select + Start combo gets through (plain Start is the game's).
+        const combo = action === 'menu' && gamepads().some((p) => p?.buttons[8]?.pressed && p.buttons[9]?.pressed);
+        if (!suspended || combo) fire(action, { source: 'gamepad', repeat: false });
       } else if (
         DIRECTIONS.has(action) &&
         t - state.since >= UI_REPEAT.delay &&

@@ -36,13 +36,26 @@ test('keyboard keys map to actions and are swallowed', () => {
   assert.equal(enter.defaultPrevented, true);
 });
 
-test('suspended: nothing delivered, nothing swallowed', () => {
-  const { input, target, seen } = setup();
+test('in game (suspended): only the menu combo gets through', () => {
+  const { input, target, seen, state, tick } = setup();
   input.suspend();
   const enter = keyEvent('Enter');
   target.dispatchEvent(enter);
   assert.deepEqual(seen, []);
   assert.equal(enter.defaultPrevented, false);
+  const escape = keyEvent('Escape');
+  target.dispatchEvent(escape);
+  assert.equal(escape.defaultPrevented, true);
+  state.pads = [pad([9])]; // plain Start: the game's
+  tick(0);
+  state.pads = [pad([])];
+  tick(16);
+  state.pads = [pad([8, 9])]; // Select + Start: the menu
+  tick(16);
+  state.pads = [pad([])];
+  tick(16);
+  assert.deepEqual(seen, ['menu:keyboard', 'menu:gamepad']);
+  seen.length = 0;
   input.resume();
   target.dispatchEvent(keyEvent('Enter'));
   assert.deepEqual(seen, ['accept:keyboard']);
