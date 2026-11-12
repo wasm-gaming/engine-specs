@@ -713,3 +713,366 @@ export abstract class EngineSDKBase<P extends EnginePayloads = DefaultPayloads>
     return this;
   }
 }
+
+// ============================================================================
+// ---- The usability scheme: one input model for every menu (UX.md) ----
+// ============================================================================
+//
+// Every engine ships its own app — start screen, load-game, pause menu, options —
+// and the launcher has its own menus. They must feel identical under a gamepad, so
+// the mapping, the repeat timing and the focus rules live here, beside the contract
+// every engine already depends on. Normative description: UX.md.
+
+/** What a menu reacts to. Never raw keys or buttons. */
+export type UiAction =
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'accept'
+  | 'back'
+  | 'menu'
+  | 'more'
+  | 'prev'
+  | 'next';
+
+export type UiDirection = 'up' | 'down' | 'left' | 'right';
+
+/** Keyboard → action (`KeyboardEvent.key`). */
+export const UI_KEYMAP: Readonly<Record<string, UiAction>> = Object.freeze({
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  Enter: 'accept',
+  ' ': 'accept',
+  Escape: 'back',
+  Backspace: 'back',
+  Tab: 'more',
+  v: 'more',
+  V: 'more',
+  ContextMenu: 'more',
+  q: 'prev',
+  Q: 'prev',
+  e: 'next',
+  E: 'next',
+  F1: 'menu',
+});
+
+/**
+ * Gamepad button index (W3C "standard" mapping) → action. A = 0, B = 1, X = 2, Y = 3,
+ * LB = 4, RB = 5, Select = 8, Start = 9, d-pad = 12–15. Select + Start together is
+ * `menu` as well (see {@link createInput}).
+ */
+export const UI_PADMAP: Readonly<Record<number, UiAction>> = Object.freeze({
+  0: 'accept',
+  1: 'back',
+  2: 'more',
+  3: 'more',
+  4: 'prev',
+  5: 'next',
+  9: 'menu',
+  12: 'up',
+  13: 'down',
+  14: 'left',
+  15: 'right',
+});
+
+/** Hold-to-repeat for directions: first repeat after `delay` ms, then every `interval` ms. */
+export const UI_REPEAT = Object.freeze({ delay: 380, interval: 110, axis: 0.6 });
+
+/** How an action reached the listener. */
+export interface UiActionDetail {
+  source: 'keyboard' | 'gamepad';
+  /** True for a held key or button repeating. */
+  repeat: boolean;
+}
+
+export type UiActionListener = (action: UiAction, detail: UiActionDetail) => void;
+
+/** The minimum of the Gamepad API {@link createInput} reads, so tests can fake it. */
+export interface UiGamepadLike {
+  readonly buttons: ReadonlyArray<{ readonly pressed: boolean }>;
+  readonly axes: ReadonlyArray<number>;
+}
+
+export interface UiInputOptions {
+  /** Where key events are heard. Default: `globalThis` (the window). */
+  target?: EventTarget;
+  /** Listen in the capture phase, ahead of the engine's own keyboard handlers. Default true. */
+  capture?: boolean;
+  /**
+   * `preventDefault()` + `stopPropagation()` on keys that map to an action, so a
+   * menu's keys never reach the game underneath. Default true.
+   */
+  swallow?: boolean;
+  keymap?: Readonly<Record<string, UiAction>>;
+  padmap?: Readonly<Record<number, UiAction>>;
+  /** Gamepad source. Default: `navigator.getGamepads()`. */
+  gamepads?: () => ReadonlyArray<UiGamepadLike | null>;
+  /** Clock in ms. Default: `performance.now()`. */
+  now?: () => number;
+  /** Frame scheduler for gamepad polling. Default: `requestAnimationFrame`; `null` = poll manually. */
+  schedule?: ((poll: () => void) => unknown) | null;
+}
+
+export interface UiInput {
+  /** Subscribe; returns the unsubscribe function. */
+  on(listener: UiActionListener): () => void;
+  /** Stop delivering (e.g. while the game runs); keys are no longer swallowed. */
+  suspend(): void;
+  resume(): void;
+  readonly suspended: boolean;
+  /** Read the gamepads once. Called every frame by the default scheduler. */
+  poll(): void;
+  /** Remove every listener and stop polling. */
+  destroy(): void;
+}
+
+const DIRECTIONS: ReadonlySet<UiAction> = new Set<UiAction>(['up', 'down', 'left', 'right']);
+
+const isEditable = (target: EventTarget | null): boolean => {
+  const element = target as { tagName?: string; isContentEditable?: boolean } | null;
+  if (!element) return false;
+  if (element.isContentEditable) return true;
+  return element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.tagName === 'SELECT';
+};
+
+/**
+ * The scheme's runtime: keyboard and gamepads become {@link UiAction}s.
+ *
+ * Keyboard: `keydown` mapped through {@link UI_KEYMAP} (keys typed into form fields
+ * are left alone). Gamepads: polled each frame through {@link UI_PADMAP} and the left
+ * stick; directions repeat with {@link UI_REPEAT}; Select + Start together is `menu`
+ * (and then neither fires on its own). While {@link UiInput.suspend | suspended}
+ * nothing is delivered and nothing is swallowed — the game gets every input.
+ */
+export function createInput(options: UiInputOptions = {}): UiInput {
+  const target = options.target ?? (globalThis as unknown as EventTarget);
+  const capture = options.capture ?? true;
+  const swallow = options.swallow ?? true;
+  const keymap = options.keymap ?? UI_KEYMAP;
+  const padmap = options.padmap ?? UI_PADMAP;
+  const now = options.now ?? (() => globalThis.performance?.now() ?? Date.now());
+  const gamepads =
+    options.gamepads ??
+    (() => (globalThis.navigator?.getGamepads?.() ?? []) as ReadonlyArray<UiGamepadLike | null>);
+  const schedule =
+    options.schedule === undefined
+      ? (globalThis.requestAnimationFrame?.bind(globalThis) ?? null)
+      : options.schedule;
+
+  const listeners = new Set<UiActionListener>();
+  let suspended = false;
+  let destroyed = false;
+  let polling = false;
+  const held = new Map<UiAction, { since: number; last: number }>();
+
+  const fire = (action: UiAction, detail: UiActionDetail): void => {
+    for (const listener of listeners) listener(action, detail);
+  };
+
+  const onKey = (event: Event): void => {
+    if (suspended || destroyed) return;
+    const key = event as KeyboardEvent;
+    if (isEditable(key.target) && key.key !== 'Escape') return;
+    const action = keymap[key.key];
+    if (!action) return;
+    if (swallow) {
+      key.preventDefault();
+      key.stopPropagation();
+    }
+    fire(action, { source: 'keyboard', repeat: key.repeat === true });
+  };
+
+  const pressed = (pad: UiGamepadLike): Set<UiAction> => {
+    const actions = new Set<UiAction>();
+    const select = pad.buttons[8]?.pressed === true;
+    const start = pad.buttons[9]?.pressed === true;
+    if (select && start) actions.add('menu');
+    pad.buttons.forEach((button, index) => {
+      if (!button.pressed) return;
+      if ((index === 8 || index === 9) && select && start) return;
+      const action = padmap[index];
+      if (action) actions.add(action);
+    });
+    const [x = 0, y = 0] = pad.axes;
+    if (x < -UI_REPEAT.axis) actions.add('left');
+    if (x > UI_REPEAT.axis) actions.add('right');
+    if (y < -UI_REPEAT.axis) actions.add('up');
+    if (y > UI_REPEAT.axis) actions.add('down');
+    return actions;
+  };
+
+  const poll = (): void => {
+    if (destroyed) return;
+    const t = now();
+    const active = new Set<UiAction>();
+    for (const pad of gamepads()) if (pad) for (const action of pressed(pad)) active.add(action);
+
+    for (const action of active) {
+      const state = held.get(action);
+      if (!state) {
+        held.set(action, { since: t, last: t });
+        if (!suspended) fire(action, { source: 'gamepad', repeat: false });
+      } else if (
+        DIRECTIONS.has(action) &&
+        t - state.since >= UI_REPEAT.delay &&
+        t - state.last >= UI_REPEAT.interval
+      ) {
+        state.last = t;
+        if (!suspended) fire(action, { source: 'gamepad', repeat: true });
+      }
+    }
+    for (const action of [...held.keys()]) if (!active.has(action)) held.delete(action);
+  };
+
+  const loop = (): void => {
+    if (destroyed || !schedule) return;
+    poll();
+    schedule(loop);
+  };
+  const startPolling = (): void => {
+    if (polling || !schedule) return;
+    polling = true;
+    schedule(loop);
+  };
+
+  target.addEventListener('keydown', onKey, { capture });
+  target.addEventListener('gamepadconnected', startPolling);
+  if (gamepads().some(Boolean)) startPolling();
+
+  return {
+    on(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    suspend() {
+      suspended = true;
+    },
+    resume() {
+      suspended = false;
+    },
+    get suspended() {
+      return suspended;
+    },
+    poll,
+    destroy() {
+      destroyed = true;
+      listeners.clear();
+      held.clear();
+      target.removeEventListener('keydown', onKey, { capture });
+      target.removeEventListener('gamepadconnected', startPolling);
+    },
+  };
+}
+
+/** Anything with a layout box (an `Element`, or a test double). */
+export interface UiFocusable {
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number };
+}
+
+/**
+ * Spatial navigation: the candidate a direction leads to from `from`, or null.
+ *
+ * Only candidates whose centre lies ahead in that direction count; among them the
+ * nearest wins, with sideways distance weighted double so "down" prefers the item
+ * straight below over a closer one off to the side.
+ */
+export function nextFocus<T extends UiFocusable>(
+  from: UiFocusable,
+  candidates: Iterable<T>,
+  direction: UiDirection,
+): T | null {
+  const centre = (el: UiFocusable) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
+  const origin = centre(from);
+  let best: T | null = null;
+  let bestScore = Infinity;
+  for (const candidate of candidates) {
+    if ((candidate as UiFocusable) === from) continue;
+    const c = centre(candidate);
+    const dx = c.x - origin.x;
+    const dy = c.y - origin.y;
+    const ahead = direction === 'up' ? -dy : direction === 'down' ? dy : direction === 'left' ? -dx : dx;
+    if (ahead <= 0.5) continue;
+    const side = direction === 'up' || direction === 'down' ? Math.abs(dx) : Math.abs(dy);
+    const score = ahead + side * 2;
+    if (score < bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/**
+ * The look every menu shares, as CSS custom properties: the focus ring, radii, type
+ * faces, colours and spacing. Apps read them with `var(--wg-…)`; {@link uiTokensCss}
+ * writes them into a stylesheet.
+ */
+export const UI_TOKENS: Readonly<Record<string, string>> = Object.freeze({
+  '--wg-bg': '#07080c',
+  '--wg-surface': 'rgb(18 20 28 / 0.78)',
+  '--wg-line': 'rgb(255 255 255 / 0.12)',
+  '--wg-text': '#f4f6fb',
+  '--wg-muted': '#8e97a9',
+  '--wg-ok': '#4ade80',
+  '--wg-danger': '#f87171',
+  '--wg-focus': '#ffffff',
+  '--wg-focus-ring': '0 0 0 3px #ffffff',
+  '--wg-radius': '22px',
+  '--wg-radius-small': '12px',
+  '--wg-gap': '16px',
+  '--wg-font-display': "'Unbounded Variable', 'Unbounded', system-ui, sans-serif",
+  '--wg-font-ui': "'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+  '--wg-ease': 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+  '--wg-safe-top': 'env(safe-area-inset-top, 0px)',
+  '--wg-safe-bottom': 'env(safe-area-inset-bottom, 0px)',
+});
+
+/** `UI_TOKENS` as a CSS rule, e.g. for a `<style>` an app injects. */
+export function uiTokensCss(selector = ':root'): string {
+  const body = Object.entries(UI_TOKENS)
+    .map(([name, value]) => `  ${name}: ${value};`)
+    .join('\n');
+  return `${selector} {\n${body}\n}\n`;
+}
+
+// ============================================================================
+// ---- The engine app: the screen an engine ships next to its SDK ----
+// ============================================================================
+
+/** What the host (the launcher's route page) hands an engine app. */
+export interface EngineAppHost {
+  /** The game being played, as the host's catalog describes it. */
+  game: {
+    slug: string;
+    title: string;
+    accent?: string;
+    art?: string;
+  };
+  /** Pass to the SDK's `storage({ namespace })`; the engine prefixes its own id. */
+  storage: { namespace: string };
+  /** The game's files, each read only when the engine asks (keyed by the SDK's asset names). */
+  assets: Record<string, () => Promise<Uint8Array>>;
+  /** The shared input; the app suspends it while the game itself has the controls. */
+  input: UiInput;
+  /** Leave: the host navigates back (to its library or home). Call after `unmount()` work is done. */
+  exit(): void;
+}
+
+/** What `mount()` returns: the way to take the app down. */
+export interface EngineAppHandle {
+  unmount(): Promise<void>;
+}
+
+/**
+ * An engine app module (`<id>/app/app.js`): mounts the engine's own screens — start
+ * / load game, pause, options — into `target` and runs the game, following UX.md.
+ */
+export interface EngineApp {
+  mount(target: HTMLElement, host: EngineAppHost): Promise<EngineAppHandle>;
+}

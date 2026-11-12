@@ -135,6 +135,25 @@ Adoption is optional: the contract is structural, so an engine with its own emit
 its own state satisfies `EngineSDK` without extending anything. `EventEmitter` and
 `hydratePlay` are exported for engines that want the pieces rather than the whole.
 
+## Menus: one usability scheme
+
+Engines also ship their own screens (start / load game, pause, options) as an **engine app**, and
+all of them — and the launcher — follow one scheme, described in [UX.md](UX.md). The package carries
+its runtime, so no engine needs another dependency:
+
+```js
+import { createInput, nextFocus, uiTokensCss } from '@wasm-gaming/engine-specs';
+
+const input = createInput();                 // keyboard + gamepads → actions, with repeat
+input.on((action) => {                       // 'up' | 'down' | … | 'accept' | 'back' | 'menu' | 'more'
+  if (action === 'down') focus(nextFocus(current, buttons, 'down'));
+});
+input.suspend();                             // the game has the controls now
+```
+
+An app implements `EngineApp` — `mount(target, host)` — and receives `game`, `storage`, `assets`,
+the shared `input` and `exit()` from the host.
+
 ## Closing the types
 
 One type parameter carries all four payloads, so there is no order to get wrong:
