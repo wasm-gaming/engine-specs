@@ -131,3 +131,27 @@ test('tokens render as one CSS rule', () => {
   assert.match(css, /^\.app \{/);
   assert.match(css, /--wg-focus-ring: 0 0 0 3px #ffffff;/);
 });
+
+test('a listener added while an action is delivered gets the next one, not that one', () => {
+  const { input, target } = setup();
+  const second = [];
+  const offFirst = input.on((action) => {
+    if (action !== 'accept') return;
+    offFirst(); // the home screen closes…
+    input.on((next) => second.push(next)); // …and the console screen subscribes
+  });
+  target.dispatchEvent(keyEvent('Enter'));
+  assert.deepEqual(second, []);
+  target.dispatchEvent(keyEvent('Enter'));
+  assert.deepEqual(second, ['accept']);
+});
+
+test('a listener removed by an earlier one in the same dispatch is not called', () => {
+  const { input, target } = setup();
+  const calls = [];
+  let offLater;
+  input.on((action) => { calls.push(`first:${action}`); offLater(); });
+  offLater = input.on((action) => calls.push(`later:${action}`));
+  target.dispatchEvent(keyEvent('Escape'));
+  assert.deepEqual(calls, ['first:back']);
+});

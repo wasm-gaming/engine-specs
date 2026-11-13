@@ -875,8 +875,14 @@ export function createInput(options: UiInputOptions = {}): UiInput {
   let polling = false;
   const held = new Map<UiAction, { since: number; last: number }>();
 
+  // A snapshot: a listener that subscribes another one (a screen opening the next)
+  // must not hand it the same action — a Set also visits entries added while it is
+  // being iterated, so one Enter would open a screen and activate its focused item.
+  // A listener removed by an earlier one in the same dispatch is skipped.
   const fire = (action: UiAction, detail: UiActionDetail): void => {
-    for (const listener of listeners) listener(action, detail);
+    for (const listener of [...listeners]) {
+      if (listeners.has(listener)) listener(action, detail);
+    }
   };
 
   const onKey = (event: Event): void => {
