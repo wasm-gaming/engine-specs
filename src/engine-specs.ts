@@ -2103,7 +2103,10 @@ export function createTouchPad(target: HTMLElement, options: TouchPadOptions): T
       relayout();
     }
   };
-  const onAnyKey = (): void => {
+  const onAnyKey = (event?: Event): void => {
+    // Only a real keyboard hides the pad: an SDK that drives its engine with synthetic key
+    // events (jgenesis reads the keyboard only) must not hide the pad it is listening to.
+    if (event?.type === 'keydown' && !event.isTrusted) return;
     if (mode === 'auto' && active) {
       active = false;
       relayout();
