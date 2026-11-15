@@ -1193,7 +1193,9 @@ const PAD_AXES = 4;
  * - Mega Drive (BlastEm `default.cfg`): A=0, B=1, C=5 (right shoulder), X=2, Y=3,
  *   Z=4 (left shoulder), Mode=8, Start=9. Six buttons: the launcher plugs 6-button
  *   pads, and a 3-button game ignores X Y Z.
- * - Neo Geo (FBNeo: "fire N" is joystick button N-1): A=0, B=1, C=2, D=3.
+ * - Neo Geo (FBNeo: "fire N" is joystick button N-1): A=0, B=1, C=2, D=3 — drawn
+ *   as the Neo Geo CD pad's diamond (A bottom, B right, C left, D top), which is
+ *   where those indices sit on a standard pad.
  * - SNES (snes9x, by position): B=0, A=1, Y=2, X=3, L=4, R=5.
  * - GBA / GBC / GB (mGBA): A=0, B=1, L=4, R=5.
  *
@@ -1219,10 +1221,11 @@ export const TOUCH_LAYOUTS: Readonly<Record<TouchSystem, TouchLayout>> = Object.
     title: 'Neo Geo',
     aspect: 4 / 3,
     faces: [
-      { label: 'A', index: 0, x: 0.13, y: 0.74, size: 0.25, color: '#ef4444' },
-      { label: 'B', index: 1, x: 0.37, y: 0.6, size: 0.25, color: '#facc15' },
-      { label: 'C', index: 2, x: 0.62, y: 0.48, size: 0.25, color: '#22c55e' },
-      { label: 'D', index: 3, x: 0.87, y: 0.38, size: 0.25, color: '#3b82f6' },
+      // The Neo Geo CD pad's diamond: D top, C left, B right, A bottom.
+      { label: 'D', index: 3, x: 0.5, y: 0.18, size: 0.32, color: '#3b82f6' },
+      { label: 'C', index: 2, x: 0.18, y: 0.5, size: 0.32, color: '#22c55e' },
+      { label: 'B', index: 1, x: 0.82, y: 0.5, size: 0.32, color: '#facc15' },
+      { label: 'A', index: 0, x: 0.5, y: 0.82, size: 0.32, color: '#ef4444' },
     ],
     select: { label: 'Select', index: 8 },
     start: { label: 'Start', index: 9 },
@@ -1330,6 +1333,14 @@ export interface TouchPlaceOptions {
 
 /** Smallest touch target (UX.md rule 8). */
 const TOUCH_MIN = 48;
+/** The d-pad is drawn at this fraction of its slot, centred; the buttons fill theirs. */
+const DPAD_SCALE = 0.8;
+
+/** A square of `fraction` of `slot`'s side, centred in it. */
+const shrink = (slot: TouchRect, fraction: number): TouchRect => {
+  const side = Math.round(slot.width * fraction);
+  return rect(slot.x + (slot.width - side) / 2, slot.y + (slot.height - side) / 2, side, side);
+};
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
 const rect = (x: number, y: number, width: number, height: number): TouchRect => ({
@@ -1389,7 +1400,7 @@ export function placeTouchPad(
     const side = Math.round(
       Math.min(middleH, inner.width * 0.47, Math.min(middleH, inner.width * 0.44, 240) * scale),
     );
-    const dpad = rect(inner.x + m, middleTop + (middleH - side) / 2, side, side);
+    const dpad = shrink(rect(inner.x + m, middleTop + (middleH - side) / 2, side, side), DPAD_SCALE);
     const cluster = rect(inner.x + inner.width - m - side, middleTop + (middleH - side) / 2, side, side);
     const shoulderW = clamp(inner.width * 0.28, 88, 160);
     const pillW = clamp(inner.width * 0.2, 72, 112);
@@ -1443,7 +1454,7 @@ export function placeTouchPad(
   const middleTop = top + rowH + m;
   const middleH = bottom - m - middleTop;
   const side = Math.round(Math.min(control, middleH, sideW - 2 * m));
-  const dpad = rect(leftX + (sideW - side) / 2, middleTop + (middleH - side) / 2, side, side);
+  const dpad = shrink(rect(leftX + (sideW - side) / 2, middleTop + (middleH - side) / 2, side, side), DPAD_SCALE);
   const cluster = rect(rightX + (sideW - side) / 2, middleTop + (middleH - side) / 2, side, side);
   const pauseW = 48;
   const shoulderW = clamp(sideW - 2 * m - (pauseW + m), 64, 140);

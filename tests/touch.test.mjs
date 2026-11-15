@@ -319,3 +319,22 @@ test('no two face buttons are drawn over each other', () => {
     }
   }
 });
+
+test('Neo Geo: the Neo Geo CD pad diamond — D top, C left, B right, A bottom', () => {
+  const at = Object.fromEntries(TOUCH_LAYOUTS.neogeo.faces.map((f) => [f.label, f]));
+  assert.ok(at.D.y < at.C.y && at.D.y < at.B.y && at.A.y > at.C.y && at.A.y > at.B.y, 'D on top, A at the bottom');
+  assert.ok(at.C.x < at.D.x && at.D.x < at.B.x && at.C.x < at.A.x && at.A.x < at.B.x, 'C left, B right');
+  assert.equal(at.D.x, at.A.x);
+  assert.equal(at.C.y, at.B.y);
+});
+
+test('the d-pad is drawn smaller than the buttons, in every layout and orientation', () => {
+  for (const layout of Object.values(TOUCH_LAYOUTS)) {
+    for (const viewport of [PHONE_PORTRAIT, PHONE_LANDSCAPE, TABLET_LANDSCAPE, { width: 834, height: 1194 }]) {
+      const p = placeTouchPad(layout, viewport);
+      const ratio = p.dpad.width / p.cluster.width;
+      assert.ok(ratio > 0.75 && ratio < 0.85, `${layout.system} ${viewport.width}x${viewport.height}: ${ratio}`);
+      assert.equal(p.dpad.width, p.dpad.height);
+    }
+  }
+});
