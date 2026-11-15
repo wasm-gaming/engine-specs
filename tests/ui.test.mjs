@@ -155,3 +155,26 @@ test('a listener removed by an earlier one in the same dispatch is not called', 
   target.dispatchEvent(keyEvent('Escape'));
   assert.deepEqual(calls, ['first:back']);
 });
+
+test('trigger(): delivered as touch; while suspended only menu gets through', () => {
+  const { input, seen } = setup();
+  input.trigger('accept');
+  input.trigger('back', { source: 'keyboard', repeat: false });
+  input.suspend();
+  input.trigger('accept');
+  input.trigger('menu');
+  assert.deepEqual(seen, ['accept:touch', 'back:keyboard', 'menu:touch']);
+});
+
+test('onSuspend(): told about every change, not about repeated calls', () => {
+  const { input } = setup();
+  const changes = [];
+  const off = input.onSuspend((value) => changes.push(value));
+  input.suspend();
+  input.suspend();
+  input.resume();
+  input.resume();
+  off();
+  input.suspend();
+  assert.deepEqual(changes, [true, false]);
+});

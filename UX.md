@@ -3,7 +3,8 @@
 Every wasm-gaming screen — the launcher's menus and each engine's own app (start screen, load
 game, pause menu, options) — follows these rules, so moving between them never changes how the
 controls behave. The runtime is in `@wasm-gaming/engine-specs`: `createInput()`, `nextFocus()`,
-`UI_TOKENS`. Gamepad first; the keyboard mirrors it.
+`UI_TOKENS`, and for touch screens `createTouchPad()`. Gamepad first; the keyboard and the touch
+pad mirror it.
 
 ## Actions
 
@@ -43,6 +44,34 @@ Select + Start pressed together is `menu`, and then neither fires on its own.
 8. **Readable at a distance:** body ≥ 16 px at 1080p, focusable targets ≥ 48 px, titles in
    `--wg-font-display`, the rest in `--wg-font-ui`; content inside the safe areas.
 9. **Hints show the gamepad glyph first** (A / B / Y with their colours), then the key.
+
+## Touch (phones and tablets)
+
+On a touch screen the game gets an on-screen gamepad, `createTouchPad()`, and the menus are
+tapped.
+
+- **One layout per console** (`TOUCH_LAYOUTS`: Mega Drive, Neo Geo, SNES, GBA, GBC, GB), with
+  the console's own button names and shapes. Each label presses the standard-mapping button
+  the console's emulator already reads for it, so the pad is a gamepad like any other.
+- **Portrait: the pad takes the bottom half**, the game the top half. **Landscape: the pad
+  sits on the sides** of the game. When sides wide enough would shrink the game below 70 % of
+  the screen's height (a 4:3 tablet), the game keeps the screen and the controls overlay its
+  edges, more transparent.
+- **The pause button** (two bars) replaces Select + Start: top of the pad in portrait, top
+  right in landscape. It opens the pause menu — `input.trigger('menu')` — and never reaches
+  the game.
+- **The pad is there only while the game has the controls.** It shows when the shared input is
+  suspended and goes when a menu opens (`connectTouchPad(pad, input)`); in a menu, every
+  focusable element answers a tap: it takes the focus and acts as `accept`.
+- **It appears on the first touch and goes when a key is pressed or a physical gamepad
+  connects**, and comes back with the next touch.
+- **Fingers**: any number at once. A finger keeps what it landed on: it slides around the
+  d-pad (eight directions by angle, a dead zone on the hub) or across the buttons (the gap
+  between two neighbours presses both); it lets a key go by sliding off it. Nothing stays
+  pressed after a lift, a cancelled touch, a lost focus or a hidden page. A tap shorter than a
+  frame is held 50 ms, so the game sees it.
+- **Targets ≥ 48 px** (rule 8), inside the safe areas; a short vibration on press where the
+  device has one. Hints show touch glyphs when the last action came from `'touch'`.
 
 ## Engine apps
 
