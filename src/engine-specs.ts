@@ -2004,6 +2004,10 @@ export function createTouchPad(target: HTMLElement, options: TouchPadOptions): T
       zone.className = 'wg-tp-zone';
       box(zone, r);
       zone.addEventListener('pointerdown', onDown);
+      // Cancelling the touch itself is what stops the browser's click after it.
+      zone.addEventListener('touchstart', cancelTouch, { passive: false });
+      zone.addEventListener('touchmove', cancelTouch, { passive: false });
+      zone.addEventListener('touchend', cancelTouch, { passive: false });
       zone.addEventListener('pointermove', onMove);
       zone.addEventListener('pointerup', onUp);
       zone.addEventListener('pointercancel', onUp);
@@ -2041,8 +2045,30 @@ export function createTouchPad(target: HTMLElement, options: TouchPadOptions): T
     }, Math.max(0, due - (win.performance?.now() ?? Date.now())));
   };
 
+  /**
+   * Where and when the pad last handled a finger. A touch that opens a menu (the pause
+   * button) hides the pad, and the click the browser sends after the lift would land on
+   * whatever the menu put under the finger — and pick it. Clicks right there, right
+   * then, are the pad's and are dropped.
+   */
+  let lastTouch = { at: -Infinity, x: 0, y: 0 };
+  const now = (): number => win.performance?.now() ?? Date.now();
+  const remember = (event: PointerEvent): void => {
+    lastTouch = { at: now(), x: event.clientX, y: event.clientY };
+  };
+  const cancelTouch = (event: Event): void => {
+    if (event.cancelable) event.preventDefault();
+  };
+  const dropGhostClick = (event: MouseEvent): void => {
+    if (now() - lastTouch.at > 400) return;
+    if (Math.hypot(event.clientX - lastTouch.x, event.clientY - lastTouch.y) > TOUCH_MIN) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+
   function onDown(event: PointerEvent): void {
     event.preventDefault();
+    remember(event);
     const zone = event.currentTarget as HTMLElement;
     if (core.down(event.pointerId, event.clientX, event.clientY) === null) return;
     try {
@@ -2058,6 +2084,7 @@ export function createTouchPad(target: HTMLElement, options: TouchPadOptions): T
     paint();
   }
   function onUp(event: PointerEvent): void {
+    remember(event);
     core.up(event.pointerId);
     paint();
     schedule();
@@ -2100,6 +2127,7 @@ export function createTouchPad(target: HTMLElement, options: TouchPadOptions): T
   });
 
   win.addEventListener('blur', releaseAll);
+  win.addEventListener('click', dropGhostClick, { capture: true });
   doc.addEventListener('visibilitychange', onVisibility);
   win.addEventListener('pointerdown', onAnyPointer, { capture: true, passive: true });
   win.addEventListener('keydown', onAnyKey, { capture: true, passive: true });
@@ -2150,6 +2178,7 @@ export function createTouchPad(target: HTMLElement, options: TouchPadOptions): T
       if (timer) clearTimeout(timer);
       if (frame) win.cancelAnimationFrame(frame);
       win.removeEventListener('blur', releaseAll);
+      win.removeEventListener('click', dropGhostClick, { capture: true });
       doc.removeEventListener('visibilitychange', onVisibility);
       win.removeEventListener('pointerdown', onAnyPointer, { capture: true });
       win.removeEventListener('keydown', onAnyKey, { capture: true });
