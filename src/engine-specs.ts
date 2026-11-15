@@ -783,7 +783,8 @@ export const UI_REPEAT = Object.freeze({ delay: 380, interval: 110, axis: 0.6 })
 
 /** How an action reached the listener. */
 export interface UiActionDetail {
-  source: 'keyboard' | 'gamepad';
+  /** `'touch'`: from the on-screen controls ({@link createTouchPad}), through {@link UiInput.trigger}. */
+  source: 'keyboard' | 'gamepad' | 'touch';
   /** True for a held key or button repeating. */
   repeat: boolean;
 }
@@ -828,6 +829,18 @@ export interface UiInput {
   suspend(): void;
   resume(): void;
   readonly suspended: boolean;
+  /**
+   * Hear every change of {@link suspended} (not repeated calls that change nothing);
+   * returns the unsubscribe function. A host follows it to show its on-screen
+   * controls while the game has them, and to hide them while a menu is open.
+   */
+  onSuspend(listener: (suspended: boolean) => void): () => void;
+  /**
+   * Deliver an action that did not come from a key or a button — the touch pad's
+   * pause button, an on-screen "back". The same rule as everything else: while
+   * suspended only `menu` gets through. Default detail: `{ source: 'touch', repeat: false }`.
+   */
+  trigger(action: UiAction, detail?: UiActionDetail): void;
   /** Read the gamepads once. Called every frame by the default scheduler. */
   poll(): void;
   /** Remove every listener and stop polling. */
@@ -870,6 +883,7 @@ export function createInput(options: UiInputOptions = {}): UiInput {
       : options.schedule;
 
   const listeners = new Set<UiActionListener>();
+  const suspendListeners = new Set<(suspended: boolean) => void>();
   let suspended = false;
   let destroyed = false;
   let polling = false;
@@ -960,6 +974,14 @@ export function createInput(options: UiInputOptions = {}): UiInput {
     schedule(loop);
   };
 
+  const setSuspended = (value: boolean): void => {
+    if (destroyed || suspended === value) return;
+    suspended = value;
+    for (const listener of [...suspendListeners]) {
+      if (suspendListeners.has(listener)) listener(value);
+    }
+  };
+
   target.addEventListener('keydown', onKey, { capture });
   target.addEventListener('gamepadconnected', startPolling);
   if (gamepads().some(Boolean)) startPolling();
@@ -970,18 +992,28 @@ export function createInput(options: UiInputOptions = {}): UiInput {
       return () => listeners.delete(listener);
     },
     suspend() {
-      suspended = true;
+      setSuspended(true);
     },
     resume() {
-      suspended = false;
+      setSuspended(false);
     },
     get suspended() {
       return suspended;
+    },
+    onSuspend(listener) {
+      suspendListeners.add(listener);
+      return () => suspendListeners.delete(listener);
+    },
+    trigger(action, detail = { source: 'touch', repeat: false }) {
+      if (destroyed) return;
+      if (suspended && action !== 'menu') return;
+      fire(action, detail);
     },
     poll,
     destroy() {
       destroyed = true;
       listeners.clear();
+      suspendListeners.clear();
       held.clear();
       target.removeEventListener('keydown', onKey, { capture });
       target.removeEventListener('gamepadconnected', startPolling);
@@ -1097,4 +1129,1043 @@ export interface EngineAppHandle {
  */
 export interface EngineApp {
   mount(target: HTMLElement, host: EngineAppHost): Promise<EngineAppHandle>;
+}
+
+// ============================================================================
+// ---- On-screen controls: a virtual gamepad for phones and tablets (UX.md) ----
+// ============================================================================
+//
+// A phone has no keyboard and usually no gamepad. The touch pad draws one, and shows
+// up in `navigator.getGamepads()` as a W3C *standard* gamepad, which is what every
+// engine's gamepad code (SDL, or its own `getGamepads()` loop) and `createInput()`
+// already read — so no engine changes to be played by touch.
+//
+// Layering: `placeTouchPad()` (geometry) and `createTouchPadCore()` (fingers →
+// buttons) are pure and tested without a browser; `createTouchPad()` draws them and
+// feeds them pointer events; `exposeAsGamepad()` and `connectTouchPad()` are the
+// bridges to the engines and to the shared input.
+
+/** A system with a touch layout. Keys are the launcher catalog's `system` ids. */
+export type TouchSystem = 'megadrive' | 'neogeo' | 'snes' | 'gba' | 'gbc' | 'gb';
+
+/** A button outside the face cluster: shoulders, Start, Select. */
+export interface TouchKey {
+  /** What it shows: the console's own name for it. */
+  label: string;
+  /** The standard-mapping button it presses. */
+  index: number;
+}
+
+/** A face button, placed inside the cluster's square. */
+export interface TouchFaceButton extends TouchKey {
+  /** Centre, as fractions (0–1) of the cluster's side. */
+  x: number;
+  y: number;
+  /** Diameter, as a fraction of the cluster's side. */
+  size: number;
+  /** Tint, for consoles whose buttons have colours. */
+  color?: string;
+}
+
+/** One console's pad. */
+export interface TouchLayout {
+  system: TouchSystem;
+  /** Shown to people (settings, the demo). */
+  title: string;
+  /** The game picture's aspect ratio (width / height), to place the controls around it. */
+  aspect: number;
+  faces: readonly TouchFaceButton[];
+  l?: TouchKey;
+  r?: TouchKey;
+  select?: TouchKey;
+  start?: TouchKey;
+}
+
+/** Standard-mapping indices the pad uses. */
+const PAD = Object.freeze({ up: 12, down: 13, left: 14, right: 15 });
+const PAD_BUTTONS = 17;
+const PAD_AXES = 4;
+
+/**
+ * One layout per system. Each label presses the standard button that the system's
+ * emulator binds to that console button by default, so no emulator is reconfigured:
+ *
+ * - Mega Drive (BlastEm `default.cfg`): A=0, B=1, C=5 (right shoulder), X=2, Y=3,
+ *   Z=4 (left shoulder), Mode=8, Start=9. Six buttons: the launcher plugs 6-button
+ *   pads, and a 3-button game ignores X Y Z.
+ * - Neo Geo (FBNeo: "fire N" is joystick button N-1): A=0, B=1, C=2, D=3.
+ * - SNES (snes9x, by position): B=0, A=1, Y=2, X=3, L=4, R=5.
+ * - GBA / GBC / GB (mGBA): A=0, B=1, L=4, R=5.
+ *
+ * Everywhere Select = 8 and Start = 9.
+ */
+export const TOUCH_LAYOUTS: Readonly<Record<TouchSystem, TouchLayout>> = Object.freeze({
+  megadrive: {
+    system: 'megadrive',
+    title: 'Mega Drive',
+    aspect: 4 / 3,
+    faces: [
+      { label: 'X', index: 2, x: 0.18, y: 0.32, size: 0.25 },
+      { label: 'Y', index: 3, x: 0.5, y: 0.26, size: 0.25 },
+      { label: 'Z', index: 4, x: 0.82, y: 0.2, size: 0.25 },
+      { label: 'A', index: 0, x: 0.18, y: 0.7, size: 0.3 },
+      { label: 'B', index: 1, x: 0.5, y: 0.64, size: 0.3 },
+      { label: 'C', index: 5, x: 0.82, y: 0.58, size: 0.3 },
+    ],
+    start: { label: 'Start', index: 9 },
+  },
+  neogeo: {
+    system: 'neogeo',
+    title: 'Neo Geo',
+    aspect: 4 / 3,
+    faces: [
+      { label: 'A', index: 0, x: 0.13, y: 0.74, size: 0.25, color: '#ef4444' },
+      { label: 'B', index: 1, x: 0.37, y: 0.6, size: 0.25, color: '#facc15' },
+      { label: 'C', index: 2, x: 0.62, y: 0.48, size: 0.25, color: '#22c55e' },
+      { label: 'D', index: 3, x: 0.87, y: 0.38, size: 0.25, color: '#3b82f6' },
+    ],
+    select: { label: 'Select', index: 8 },
+    start: { label: 'Start', index: 9 },
+  },
+  snes: {
+    system: 'snes',
+    title: 'Super Nintendo',
+    aspect: 4 / 3,
+    faces: [
+      { label: 'X', index: 3, x: 0.5, y: 0.18, size: 0.32, color: '#3b82f6' },
+      { label: 'Y', index: 2, x: 0.18, y: 0.5, size: 0.32, color: '#22c55e' },
+      { label: 'A', index: 1, x: 0.82, y: 0.5, size: 0.32, color: '#ef4444' },
+      { label: 'B', index: 0, x: 0.5, y: 0.82, size: 0.32, color: '#facc15' },
+    ],
+    l: { label: 'L', index: 4 },
+    r: { label: 'R', index: 5 },
+    select: { label: 'Select', index: 8 },
+    start: { label: 'Start', index: 9 },
+  },
+  gba: {
+    system: 'gba',
+    title: 'Game Boy Advance',
+    aspect: 3 / 2,
+    faces: [
+      { label: 'B', index: 1, x: 0.28, y: 0.64, size: 0.38 },
+      { label: 'A', index: 0, x: 0.72, y: 0.4, size: 0.38 },
+    ],
+    l: { label: 'L', index: 4 },
+    r: { label: 'R', index: 5 },
+    select: { label: 'Select', index: 8 },
+    start: { label: 'Start', index: 9 },
+  },
+  gbc: {
+    system: 'gbc',
+    title: 'Game Boy Color',
+    aspect: 10 / 9,
+    faces: [
+      { label: 'B', index: 1, x: 0.28, y: 0.64, size: 0.38 },
+      { label: 'A', index: 0, x: 0.72, y: 0.4, size: 0.38 },
+    ],
+    select: { label: 'Select', index: 8 },
+    start: { label: 'Start', index: 9 },
+  },
+  gb: {
+    system: 'gb',
+    title: 'Game Boy',
+    aspect: 10 / 9,
+    faces: [
+      { label: 'B', index: 1, x: 0.28, y: 0.64, size: 0.38 },
+      { label: 'A', index: 0, x: 0.72, y: 0.4, size: 0.38 },
+    ],
+    select: { label: 'Select', index: 8 },
+    start: { label: 'Start', index: 9 },
+  },
+});
+
+/** A rectangle in CSS pixels, relative to the viewport. */
+export interface TouchRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface TouchInsets {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export interface TouchViewport {
+  width: number;
+  height: number;
+  /** `env(safe-area-inset-*)`: notches, rounded corners, the home indicator. */
+  safe?: TouchInsets;
+}
+
+/** Where everything goes, for one layout on one viewport. */
+export interface TouchPlacement {
+  orientation: 'portrait' | 'landscape';
+  /**
+   * The controls are drawn over the picture: landscape, when giving them sides of
+   * their own would shrink the game below `minGameScale`.
+   */
+  overlay: boolean;
+  /** Where the game may draw. The host fits the engine's target into it. */
+  gameArea: TouchRect;
+  /** The areas that take touches: the pad's half (portrait), or each side. */
+  zones: TouchRect[];
+  dpad: TouchRect;
+  cluster: TouchRect;
+  /** Face buttons in viewport pixels: centre and radius. */
+  faces: Array<{ label: string; index: number; cx: number; cy: number; r: number; color?: string }>;
+  /** Shoulders, Start, Select — and the pause button (`index: null`). */
+  keys: Array<{ id: 'l' | 'r' | 'select' | 'start' | 'pause'; label: string; index: number | null; rect: TouchRect }>;
+}
+
+export interface TouchPlaceOptions {
+  /** Size of the controls, 0.75–1.4. Default 1. */
+  scale?: number;
+  /** Below this fraction of its full height, the game keeps its size and the controls overlay it. Default 0.7. */
+  minGameScale?: number;
+}
+
+/** Smallest touch target (UX.md rule 8). */
+const TOUCH_MIN = 48;
+
+const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+const rect = (x: number, y: number, width: number, height: number): TouchRect => ({
+  x: Math.round(x),
+  y: Math.round(y),
+  width: Math.round(width),
+  height: Math.round(height),
+});
+
+/**
+ * Lays a pad out. **Portrait**: the pad takes the bottom half — shoulders and the
+ * pause button along its top, the d-pad left, the buttons right, Select / Start
+ * along its bottom — and the game gets the top half. **Landscape**: the game is
+ * centred and the controls sit on its sides — L and the d-pad and Select on the
+ * left; pause, R, the buttons and Start on the right. When sides wide enough would
+ * shrink the game below `minGameScale` of the screen's height (a 4:3 tablet), the
+ * game keeps the whole screen and the controls overlay its edges.
+ */
+export function placeTouchPad(
+  layout: TouchLayout,
+  viewport: TouchViewport,
+  options: TouchPlaceOptions = {},
+): TouchPlacement {
+  const scale = clamp(options.scale ?? 1, 0.75, 1.4);
+  const minGameScale = options.minGameScale ?? 0.7;
+  const { width: W, height: H } = viewport;
+  const safe = viewport.safe ?? { top: 0, right: 0, bottom: 0, left: 0 };
+
+  const faces = (cluster: TouchRect): TouchPlacement['faces'] =>
+    layout.faces.map((face) => ({
+      label: face.label,
+      index: face.index,
+      cx: Math.round(cluster.x + face.x * cluster.width),
+      cy: Math.round(cluster.y + face.y * cluster.height),
+      r: Math.round((face.size * cluster.width) / 2),
+      ...(face.color ? { color: face.color } : {}),
+    }));
+  const key = (
+    id: 'l' | 'r' | 'select' | 'start',
+    spec: TouchKey | undefined,
+    at: TouchRect,
+  ): TouchPlacement['keys'] => (spec ? [{ id, label: spec.label, index: spec.index, rect: at }] : []);
+
+  if (H >= W) {
+    // ---- portrait: the bottom half
+    const half = Math.round(H / 2);
+    const zone = rect(0, half, W, H - half);
+    const inner = rect(safe.left, half, W - safe.left - safe.right, H - half - safe.bottom);
+    const m = Math.round(clamp(inner.width * 0.04, 10, 24));
+    const rowH = TOUCH_MIN;
+    const top = inner.y + m;
+    const bottom = inner.y + inner.height - m - rowH;
+    const middleTop = top + rowH + Math.round(m / 2);
+    const middleH = bottom - Math.round(m / 2) - middleTop;
+    // The d-pad and the cluster are squares of the same side: as big as the half
+    // allows, capped for tablets, then scaled — never beyond the room there is.
+    const side = Math.round(
+      Math.min(middleH, inner.width * 0.47, Math.min(middleH, inner.width * 0.44, 240) * scale),
+    );
+    const dpad = rect(inner.x + m, middleTop + (middleH - side) / 2, side, side);
+    const cluster = rect(inner.x + inner.width - m - side, middleTop + (middleH - side) / 2, side, side);
+    const shoulderW = clamp(inner.width * 0.28, 88, 160);
+    const pillW = clamp(inner.width * 0.2, 72, 112);
+    const pauseW = 56;
+    const centre = inner.x + inner.width / 2;
+    return {
+      orientation: 'portrait',
+      overlay: false,
+      gameArea: rect(safe.left, safe.top, W - safe.left - safe.right, half - safe.top),
+      zones: [zone],
+      dpad,
+      cluster,
+      faces: faces(cluster),
+      keys: [
+        ...key('l', layout.l, rect(inner.x + m, top, shoulderW, rowH)),
+        ...key('r', layout.r, rect(inner.x + inner.width - m - shoulderW, top, shoulderW, rowH)),
+        { id: 'pause', label: 'Pause', index: null, rect: rect(centre - pauseW / 2, top, pauseW, rowH) },
+        ...key('select', layout.select, rect(centre - 8 - pillW, bottom, pillW, rowH)),
+        ...key('start', layout.start, rect(layout.select ? centre + 8 : centre - pillW / 2, bottom, pillW, rowH)),
+      ],
+    };
+  }
+
+  // ---- landscape: the sides
+  const fullH = H - safe.top - safe.bottom;
+  const usableW = W - safe.left - safe.right;
+  const m = Math.round(clamp(fullH * 0.035, 8, 20));
+  const rowH = TOUCH_MIN;
+  const control = Math.round(clamp(Math.min(fullH * 0.42, 200), 112, 200) * scale);
+  const sideNeeded = control + 2 * m;
+  const gameWFull = Math.min(usableW, fullH * layout.aspect);
+  let gameW = gameWFull;
+  let overlay = false;
+  if ((usableW - gameWFull) / 2 < sideNeeded) {
+    const shrunkW = usableW - 2 * sideNeeded;
+    const shrunkScale = shrunkW / layout.aspect / fullH;
+    if (shrunkScale >= minGameScale) gameW = shrunkW;
+    else overlay = true;
+  }
+  const sideW = overlay ? sideNeeded : (usableW - gameW) / 2;
+  const gameH = overlay ? fullH : Math.min(fullH, gameW / layout.aspect);
+  const gameArea = overlay
+    ? rect(safe.left, safe.top, usableW, fullH)
+    : rect(safe.left + sideW, safe.top + (fullH - gameH) / 2, gameW, gameH);
+  const leftX = safe.left;
+  const rightX = W - safe.right - sideW;
+  const top = safe.top + m;
+  const bottom = H - safe.bottom - m - rowH;
+  // The top row always exists — it holds the pause button, and the shoulders when
+  // the console has them.
+  const middleTop = top + rowH + m;
+  const middleH = bottom - m - middleTop;
+  const side = Math.round(Math.min(control, middleH, sideW - 2 * m));
+  const dpad = rect(leftX + (sideW - side) / 2, middleTop + (middleH - side) / 2, side, side);
+  const cluster = rect(rightX + (sideW - side) / 2, middleTop + (middleH - side) / 2, side, side);
+  const pauseW = 48;
+  const shoulderW = clamp(sideW - 2 * m - (pauseW + m), 64, 140);
+  const pillW = clamp(sideW * 0.5, 72, 112);
+  return {
+    orientation: 'landscape',
+    overlay,
+    gameArea,
+    zones: [rect(0, 0, leftX + sideW, H), rect(rightX, 0, W - rightX, H)],
+    dpad,
+    cluster,
+    faces: faces(cluster),
+    keys: [
+      ...key('l', layout.l, rect(leftX + m, top, shoulderW, rowH)),
+      ...key('r', layout.r, rect(rightX + m, top, shoulderW, rowH)),
+      { id: 'pause', label: 'Pause', index: null, rect: rect(rightX + sideW - m - pauseW, top, pauseW, rowH) },
+      ...key('select', layout.select, rect(leftX + (sideW - pillW) / 2, bottom, pillW, rowH)),
+      ...key('start', layout.start, rect(rightX + (sideW - pillW) / 2, bottom, pillW, rowH)),
+    ],
+  };
+}
+
+/** The pad as the Gamepad API shows it: a W3C *standard* gamepad. */
+export interface VirtualGamepad extends UiGamepadLike {
+  readonly id: string;
+  index: number;
+  connected: boolean;
+  readonly mapping: 'standard';
+  /**
+   * Moved on every change. Emscripten's SDL backend re-reads a pad only when its
+   * timestamp moved, so a pad whose timestamp stood still would look frozen.
+   */
+  timestamp: number;
+  readonly buttons: Array<{ pressed: boolean; touched: boolean; value: number }>;
+  readonly axes: number[];
+  readonly vibrationActuator: null;
+}
+
+/** The pad's `Gamepad.id`. */
+export const TOUCH_PAD_ID = 'wasm-gaming touch pad (STANDARD GAMEPAD)';
+
+/** What a finger took when it landed. */
+export type TouchControl = 'dpad' | 'cluster' | 'l' | 'r' | 'select' | 'start' | 'pause';
+
+export interface TouchPadCoreOptions {
+  /** Clock in ms. Default: `performance.now()`. */
+  now?: () => number;
+  /**
+   * A press is held at least this long (ms), so a tap shorter than a frame still
+   * reaches whoever polls once per frame. Default 50.
+   */
+  minHold?: number;
+}
+
+/** Fingers → standard buttons, without a DOM. {@link createTouchPad} draws it. */
+export interface TouchPadCore {
+  readonly gamepad: VirtualGamepad;
+  readonly placement: TouchPlacement | null;
+  /** New geometry; every finger is released. */
+  place(placement: TouchPlacement | null): void;
+  /** A finger lands; returns what it took, or null (nothing there). */
+  down(pointerId: number, x: number, y: number): TouchControl | null;
+  /** A finger slides: within the d-pad, across the buttons, off a key. */
+  move(pointerId: number, x: number, y: number): void;
+  /** A finger lifts, or the browser took it away (`pointercancel`). */
+  up(pointerId: number): void;
+  /** Every finger at once: blur, hidden page, hidden pad. Never a stuck button. */
+  releaseAll(): void;
+  /** Standard indices pressed now, latching included. */
+  pressed(): ReadonlySet<number>;
+  /** When (ms, the core's clock) a latched press is due to end, or null. Call {@link tick} then. */
+  readonly deadline: number | null;
+  /** Apply releases that came due. */
+  tick(): void;
+  /** Buttons changed; `pressed` lists the ones that went down. */
+  onChange(listener: (pressed: number[]) => void): () => void;
+  /** The pause button was touched. */
+  onPause(listener: () => void): () => void;
+}
+
+/** A finger landing this close to a key (px) still takes it. */
+const KEY_SLOP = 8;
+
+/** Standard d-pad indices for a point, from its angle around the d-pad's centre. */
+export function touchDpadAt(dpad: TouchRect, x: number, y: number): number[] {
+  const dx = x - (dpad.x + dpad.width / 2);
+  const dy = y - (dpad.y + dpad.height / 2);
+  // A dead zone in the middle: resting the thumb on the hub presses nothing.
+  if (Math.hypot(dx, dy) < dpad.width * 0.11) return [];
+  // Eight sectors of 45°, the cardinal ones centred on their axis.
+  const sector = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8;
+  return [
+    [PAD.right],
+    [PAD.right, PAD.down],
+    [PAD.down],
+    [PAD.down, PAD.left],
+    [PAD.left],
+    [PAD.left, PAD.up],
+    [PAD.up],
+    [PAD.up, PAD.right],
+  ][sector] as number[];
+}
+
+/**
+ * Face buttons under a point. Each takes a circle a little larger than it is drawn
+ * (never under the 48 px minimum), so the gap between two neighbours presses both —
+ * the arcade "roll" — and a thumb slides from one to the next without lifting.
+ */
+export function touchFacesAt(placement: TouchPlacement, x: number, y: number): number[] {
+  const out: number[] = [];
+  for (const face of placement.faces) {
+    const reach = Math.max(face.r * 1.18, TOUCH_MIN / 2);
+    if (Math.hypot(x - face.cx, y - face.cy) <= reach) out.push(face.index);
+  }
+  return out;
+}
+
+const inside = (r: TouchRect, x: number, y: number, slop = 0): boolean =>
+  x >= r.x - slop && x <= r.x + r.width + slop && y >= r.y - slop && y <= r.y + r.height + slop;
+
+const grow = (r: TouchRect, by: number): TouchRect => ({
+  x: r.x - r.width * by,
+  y: r.y - r.height * by,
+  width: r.width * (1 + 2 * by),
+  height: r.height * (1 + 2 * by),
+});
+
+export function createTouchPadCore(options: TouchPadCoreOptions = {}): TouchPadCore {
+  const now = options.now ?? (() => globalThis.performance?.now() ?? Date.now());
+  const minHold = options.minHold ?? 50;
+  const gamepad: VirtualGamepad = {
+    id: TOUCH_PAD_ID,
+    index: 0,
+    connected: false,
+    mapping: 'standard',
+    timestamp: 0,
+    buttons: Array.from({ length: PAD_BUTTONS }, () => ({ pressed: false, touched: false, value: 0 })),
+    axes: Array.from({ length: PAD_AXES }, () => 0),
+    vibrationActuator: null,
+  };
+  let placement: TouchPlacement | null = null;
+  const fingers = new Map<number, { control: TouchControl; indices: number[] }>();
+  /** When each pressed index went down. */
+  const since = new Map<number, number>();
+  /** Latched: released early, held until then. */
+  const latched = new Map<number, number>();
+  const changeListeners = new Set<(pressed: number[]) => void>();
+  const pauseListeners = new Set<() => void>();
+
+  const live = (): Set<number> => {
+    const set = new Set<number>();
+    for (const finger of fingers.values()) for (const index of finger.indices) set.add(index);
+    return set;
+  };
+
+  const sync = (): void => {
+    const t = now();
+    const held = live();
+    for (const [index, until] of [...latched]) if (until <= t || held.has(index)) latched.delete(index);
+    for (const index of [...since.keys()]) {
+      if (held.has(index)) continue;
+      const start = since.get(index) ?? t;
+      if (t < start + minHold) latched.set(index, start + minHold);
+      since.delete(index);
+    }
+    const effective = new Set([...held, ...latched.keys()]);
+    const wentDown: number[] = [];
+    let changed = false;
+    gamepad.buttons.forEach((button, index) => {
+      const on = effective.has(index);
+      if (on === button.pressed) return;
+      changed = true;
+      button.pressed = on;
+      button.touched = on;
+      button.value = on ? 1 : 0;
+      if (on) wentDown.push(index);
+    });
+    for (const index of held) if (!since.has(index)) since.set(index, t);
+    if (!changed) return;
+    gamepad.timestamp = t;
+    for (const listener of [...changeListeners]) listener(wentDown);
+  };
+
+  const indicesFor = (control: TouchControl, x: number, y: number): number[] => {
+    if (!placement) return [];
+    if (control === 'dpad') return touchDpadAt(placement.dpad, x, y);
+    if (control === 'cluster') return touchFacesAt(placement, x, y);
+    const key = placement.keys.find((k) => k.id === control);
+    if (!key || key.index === null) return [];
+    return inside(key.rect, x, y, KEY_SLOP) ? [key.index] : [];
+  };
+
+  const controlAt = (x: number, y: number): TouchControl | null => {
+    if (!placement) return null;
+    for (const key of placement.keys) if (inside(key.rect, x, y, KEY_SLOP)) return key.id;
+    const { dpad, cluster } = placement;
+    const nearDpad = inside(grow(dpad, 0.2), x, y);
+    const nearCluster = inside(grow(cluster, 0.12), x, y) || touchFacesAt(placement, x, y).length > 0;
+    if (nearDpad && nearCluster) {
+      // On a narrow phone the two margins meet: the nearer one, by its own size.
+      const reach = (r: TouchRect): number =>
+        Math.hypot(x - (r.x + r.width / 2), y - (r.y + r.height / 2)) / (r.width / 2);
+      return reach(dpad) <= reach(cluster) ? 'dpad' : 'cluster';
+    }
+    if (nearDpad) return 'dpad';
+    if (nearCluster) return 'cluster';
+    return null;
+  };
+
+  return {
+    gamepad,
+    get placement() {
+      return placement;
+    },
+    place(next) {
+      placement = next;
+      // A new geometry is a clean slate: nothing latched survives it.
+      fingers.clear();
+      latched.clear();
+      since.clear();
+      sync();
+    },
+    down(pointerId, x, y) {
+      const control = controlAt(x, y);
+      if (!control) return null;
+      fingers.set(pointerId, { control, indices: indicesFor(control, x, y) });
+      if (control === 'pause') for (const listener of [...pauseListeners]) listener();
+      sync();
+      return control;
+    },
+    move(pointerId, x, y) {
+      const finger = fingers.get(pointerId);
+      if (!finger || finger.control === 'pause') return;
+      finger.indices = indicesFor(finger.control, x, y);
+      sync();
+    },
+    up(pointerId) {
+      if (!fingers.delete(pointerId)) return;
+      sync();
+    },
+    releaseAll() {
+      fingers.clear();
+      latched.clear();
+      since.clear();
+      sync();
+    },
+    pressed() {
+      const set = new Set<number>();
+      gamepad.buttons.forEach((button, index) => button.pressed && set.add(index));
+      return set;
+    },
+    get deadline() {
+      return latched.size ? Math.min(...latched.values()) : null;
+    },
+    tick: sync,
+    onChange(listener) {
+      changeListeners.add(listener);
+      return () => changeListeners.delete(listener);
+    },
+    onPause(listener) {
+      pauseListeners.add(listener);
+      return () => pauseListeners.delete(listener);
+    },
+  };
+}
+
+/** The minimum of `navigator` {@link exposeAsGamepad} touches, so tests can fake it. */
+export interface TouchNavigatorLike {
+  getGamepads?: () => ArrayLike<unknown | null>;
+}
+
+export interface ExposeOptions {
+  /** Default: `globalThis.navigator`. */
+  navigator?: TouchNavigatorLike;
+  /** Where `gamepadconnected` / `gamepaddisconnected` are announced. Default: `globalThis` (the window). */
+  target?: EventTarget;
+}
+
+/**
+ * Puts the pad in `navigator.getGamepads()`, at the first index no physical pad
+ * holds (index 0 when there is none — snes9x and mGBA read only that one), and
+ * announces it with `gamepadconnected`. Install it **before** the engine starts, so
+ * SDL's start-up enumeration finds it. If a physical pad later takes its index, the
+ * pad moves to the next free one (disconnected, then connected again).
+ *
+ * The events are plain `Event`s carrying a `gamepad` property — a `GamepadEvent`
+ * cannot be built around an object that is not a real `Gamepad` — which is the shape
+ * Emscripten's handler and `createInput()` read. Returns `release()`, which restores
+ * `getGamepads` and announces the pad gone.
+ */
+export function exposeAsGamepad(
+  source: VirtualGamepad | { readonly gamepad: VirtualGamepad },
+  options: ExposeOptions = {},
+): () => void {
+  const pad: VirtualGamepad = 'gamepad' in source ? source.gamepad : source;
+  const nav = (options.navigator ?? globalThis.navigator) as TouchNavigatorLike | undefined;
+  const target = options.target ?? (globalThis as unknown as EventTarget);
+  if (!nav) return () => {};
+  const own = Object.getOwnPropertyDescriptor(nav, 'getGamepads');
+  const original = nav.getGamepads ? nav.getGamepads.bind(nav) : () => [];
+  const announce = (type: 'gamepadconnected' | 'gamepaddisconnected'): void => {
+    const event = new Event(type);
+    Object.defineProperty(event, 'gamepad', { value: pad, enumerable: true });
+    target.dispatchEvent(event);
+  };
+  const physical = (): Array<unknown | null> =>
+    Array.from(original() ?? [], (entry) => (entry === pad ? null : entry ?? null));
+  const freeIndex = (pads: Array<unknown | null>): number => {
+    let index = 0;
+    while (pads[index]) index++;
+    return index;
+  };
+
+  let moving = false;
+  const wrapped = (): Array<unknown | null> => {
+    const pads = physical();
+    if (pads[pad.index] && !moving) {
+      // A physical pad took our slot. Move, announcing outside the caller's poll.
+      moving = true;
+      queueMicrotask(() => {
+        announce('gamepaddisconnected');
+        pad.index = freeIndex(physical());
+        moving = false;
+        announce('gamepadconnected');
+      });
+    }
+    const out = pads.slice();
+    if (!moving) {
+      while (out.length <= pad.index) out.push(null);
+      out[pad.index] = pad;
+    }
+    return out;
+  };
+
+  pad.index = freeIndex(physical());
+  pad.connected = true;
+  Object.defineProperty(nav, 'getGamepads', { value: wrapped, configurable: true, writable: true });
+  announce('gamepadconnected');
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (own) Object.defineProperty(nav, 'getGamepads', own);
+    else delete (nav as { getGamepads?: unknown }).getGamepads;
+    pad.connected = false;
+    announce('gamepaddisconnected');
+  };
+}
+
+export interface TouchPadOptions extends TouchPlaceOptions {
+  /** The console, or its layout. */
+  layout: TouchSystem | TouchLayout;
+  /** How much the controls show through, 0.2–1. Default 0.6. */
+  opacity?: number;
+  /** See {@link TouchPadCoreOptions.minHold}. Default 50 ms. */
+  minHold?: number;
+  /** A short vibration on every press, where the browser has one (Android). Default true. */
+  haptics?: boolean;
+  /**
+   * `'auto'` (default): drawn on touch screens, from the first touch; gone again when
+   * a key is pressed or a physical gamepad connects, back on the next touch.
+   * `'always'`: whenever shown.
+   */
+  mode?: 'auto' | 'always';
+  /** Start shown — the game has the controls. Default false: the host shows it (see {@link connectTouchPad}). */
+  shown?: boolean;
+}
+
+export interface TouchPad {
+  readonly gamepad: VirtualGamepad;
+  readonly layout: TouchLayout;
+  setLayout(layout: TouchSystem | TouchLayout): void;
+  /** The game has the controls. */
+  show(): void;
+  /** A menu is open: the controls go away and the menu is tapped. */
+  hide(): void;
+  /** Shown, and in use on a touch screen. */
+  readonly visible: boolean;
+  /** Null while not visible. */
+  readonly placement: TouchPlacement | null;
+  /** Where the game may draw: the whole viewport while the pad is not visible. */
+  readonly gameArea: TouchRect;
+  /** Hear every change of {@link gameArea} (rotation, resize, the pad showing or going). */
+  onLayout(listener: (gameArea: TouchRect, placement: TouchPlacement | null) => void): () => void;
+  onPause(listener: () => void): () => void;
+  destroy(): void;
+}
+
+const TOUCH_STYLE_ID = 'wg-touch-pad-style';
+const TOUCH_CSS = `
+.wg-tp { position: fixed; inset: 0; z-index: 9000; pointer-events: none; display: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  font-family: var(--wg-font-ui, system-ui, sans-serif); color: #fff; }
+.wg-tp.is-visible { display: block; }
+.wg-tp-zone { position: absolute; pointer-events: auto; touch-action: none; overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent; }
+.wg-tp-art { position: absolute; inset: 0; opacity: var(--wg-tp-opacity, 0.6); }
+.wg-tp.is-overlay .wg-tp-art { opacity: calc(var(--wg-tp-opacity, 0.6) * 0.75); }
+.wg-tp-face, .wg-tp-key, .wg-tp-arm, .wg-tp-hub { position: absolute; box-sizing: border-box;
+  background: rgb(255 255 255 / 0.12); border: 1.5px solid rgb(255 255 255 / 0.55);
+  display: grid; place-items: center; font-weight: 700; letter-spacing: 0.02em;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6); }
+.wg-tp-face { border-radius: 50%; --c: #ffffff; border-color: color-mix(in srgb, var(--c) 70%, white);
+  background: color-mix(in srgb, var(--c) 22%, transparent); }
+.wg-tp-key { border-radius: 999px; font-size: 13px; font-weight: 600; }
+.wg-tp-key.is-shoulder { border-radius: 14px; font-size: 16px; font-weight: 700; }
+.wg-tp-key.is-pause::before, .wg-tp-key.is-pause::after { content: ''; position: absolute; top: 34%; bottom: 34%;
+  width: 4px; border-radius: 2px; background: currentColor; }
+.wg-tp-key.is-pause::before { left: calc(50% - 7px); }
+.wg-tp-key.is-pause::after { right: calc(50% - 7px); }
+.wg-tp-arm { border-radius: 6px; }
+.wg-tp-hub { border-radius: 4px; border-width: 0; background: rgb(255 255 255 / 0.12); }
+.wg-tp .is-on { background: rgb(255 255 255 / 0.55); transform: scale(0.96); color: #0b0d12; text-shadow: none; }
+.wg-tp-face.is-on { background: color-mix(in srgb, var(--c) 70%, white); }
+`;
+
+/**
+ * The touch pad: draws {@link TOUCH_LAYOUTS | a console's pad} over `target`'s
+ * viewport and turns fingers into a {@link VirtualGamepad}. Pair it with
+ * {@link exposeAsGamepad} (the engines) and {@link connectTouchPad} (the shared
+ * input). Pointer Events, any number of fingers; a finger keeps the control it
+ * landed on — it slides around the d-pad, or across the buttons — and every finger
+ * is let go on blur, on a hidden page, and when the pad hides: never a stuck button.
+ */
+export function createTouchPad(target: HTMLElement, options: TouchPadOptions): TouchPad {
+  const doc = target.ownerDocument;
+  const win = doc.defaultView ?? (globalThis as unknown as Window);
+  const resolve = (layout: TouchSystem | TouchLayout): TouchLayout =>
+    typeof layout === 'string' ? TOUCH_LAYOUTS[layout] : layout;
+  let layout = resolve(options.layout);
+  const haptics = options.haptics ?? true;
+  const mode = options.mode ?? 'auto';
+  const placeOptions: TouchPlaceOptions = {
+    ...(options.scale !== undefined ? { scale: options.scale } : {}),
+    ...(options.minGameScale !== undefined ? { minGameScale: options.minGameScale } : {}),
+  };
+  const core = createTouchPadCore(options.minHold !== undefined ? { minHold: options.minHold } : {});
+
+  if (!doc.getElementById(TOUCH_STYLE_ID)) {
+    const style = doc.createElement('style');
+    style.id = TOUCH_STYLE_ID;
+    style.textContent = TOUCH_CSS;
+    doc.head.appendChild(style);
+  }
+
+  const root = doc.createElement('div');
+  root.className = 'wg-tp';
+  root.style.setProperty('--wg-tp-opacity', String(clamp(options.opacity ?? 0.6, 0.2, 1)));
+  const art = doc.createElement('div');
+  art.className = 'wg-tp-art';
+  // Reads `env(safe-area-inset-*)` back as pixels.
+  const probe = doc.createElement('div');
+  probe.style.cssText =
+    'position:fixed;inset:0;visibility:hidden;pointer-events:none;' +
+    'padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+  root.append(art, probe);
+  target.appendChild(root);
+
+  let shown = options.shown ?? false;
+  let active = mode === 'always' || (win.matchMedia?.('(pointer: coarse)').matches ?? false);
+  let destroyed = false;
+  let zones: HTMLElement[] = [];
+  let arms: Record<'up' | 'down' | 'left' | 'right', HTMLElement> | null = null;
+  const parts = new Map<number, HTMLElement[]>();
+  const layoutListeners = new Set<(gameArea: TouchRect, placement: TouchPlacement | null) => void>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const visible = (): boolean => shown && active && !destroyed;
+  const viewport = (): TouchViewport => {
+    const css = win.getComputedStyle(probe);
+    const px = (value: string): number => Number.parseFloat(value) || 0;
+    return {
+      width: win.innerWidth,
+      height: win.innerHeight,
+      safe: { top: px(css.paddingTop), right: px(css.paddingRight), bottom: px(css.paddingBottom), left: px(css.paddingLeft) },
+    };
+  };
+  const gameArea = (): TouchRect =>
+    core.placement?.gameArea ?? { x: 0, y: 0, width: win.innerWidth, height: win.innerHeight };
+
+  const box = (el: HTMLElement, r: TouchRect): void => {
+    el.style.left = `${r.x}px`;
+    el.style.top = `${r.y}px`;
+    el.style.width = `${r.width}px`;
+    el.style.height = `${r.height}px`;
+  };
+  const register = (index: number, el: HTMLElement): void => {
+    parts.set(index, [...(parts.get(index) ?? []), el]);
+  };
+
+  const paint = (): void => {
+    const on = core.pressed();
+    for (const [index, els] of parts) for (const el of els) el.classList.toggle('is-on', on.has(index));
+    if (arms) {
+      arms.up.classList.toggle('is-on', on.has(PAD.up));
+      arms.down.classList.toggle('is-on', on.has(PAD.down));
+      arms.left.classList.toggle('is-on', on.has(PAD.left));
+      arms.right.classList.toggle('is-on', on.has(PAD.right));
+    }
+  };
+
+  const build = (placement: TouchPlacement): void => {
+    for (const zone of zones) zone.remove();
+    art.replaceChildren();
+    parts.clear();
+    root.classList.toggle('is-overlay', placement.overlay);
+
+    // The d-pad: a cross of four arms around a hub.
+    const d = placement.dpad;
+    const third = d.width / 3;
+    const arm = (dir: 'up' | 'down' | 'left' | 'right', x: number, y: number): HTMLElement => {
+      const el = doc.createElement('div');
+      el.className = 'wg-tp-arm';
+      box(el, rect(d.x + x * third, d.y + y * third, third, third));
+      art.appendChild(el);
+      return el;
+    };
+    arms = { up: arm('up', 1, 0), left: arm('left', 0, 1), right: arm('right', 2, 1), down: arm('down', 1, 2) };
+    const hub = doc.createElement('div');
+    hub.className = 'wg-tp-hub';
+    box(hub, rect(d.x + third, d.y + third, third, third));
+    art.appendChild(hub);
+
+    for (const face of placement.faces) {
+      const el = doc.createElement('div');
+      el.className = 'wg-tp-face';
+      el.textContent = face.label;
+      el.style.fontSize = `${Math.round(clamp(face.r * 0.7, 14, 28))}px`;
+      if (face.color) el.style.setProperty('--c', face.color);
+      box(el, rect(face.cx - face.r, face.cy - face.r, face.r * 2, face.r * 2));
+      art.appendChild(el);
+      register(face.index, el);
+    }
+    for (const key of placement.keys) {
+      const el = doc.createElement('div');
+      el.className = `wg-tp-key is-${key.id}${key.id === 'l' || key.id === 'r' ? ' is-shoulder' : ''}`;
+      if (key.id === 'pause') el.setAttribute('aria-label', key.label);
+      else el.textContent = key.label;
+      box(el, key.rect);
+      art.appendChild(el);
+      if (key.index !== null) register(key.index, el);
+    }
+
+    zones = placement.zones.map((r) => {
+      const zone = doc.createElement('div');
+      zone.className = 'wg-tp-zone';
+      box(zone, r);
+      zone.addEventListener('pointerdown', onDown);
+      zone.addEventListener('pointermove', onMove);
+      zone.addEventListener('pointerup', onUp);
+      zone.addEventListener('pointercancel', onUp);
+      zone.addEventListener('lostpointercapture', onUp);
+      root.appendChild(zone);
+      return zone;
+    });
+  };
+
+  const relayout = (): void => {
+    if (destroyed) return;
+    root.classList.toggle('is-visible', visible());
+    if (visible()) {
+      const placement = placeTouchPad(layout, viewport(), placeOptions);
+      core.place(placement);
+      build(placement);
+    } else {
+      core.place(null);
+    }
+    paint();
+    const area = gameArea();
+    for (const listener of [...layoutListeners]) listener(area, core.placement);
+  };
+
+  const schedule = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    const due = core.deadline;
+    if (due === null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      core.tick();
+      paint();
+      schedule();
+    }, Math.max(0, due - (win.performance?.now() ?? Date.now())));
+  };
+
+  function onDown(event: PointerEvent): void {
+    event.preventDefault();
+    const zone = event.currentTarget as HTMLElement;
+    if (core.down(event.pointerId, event.clientX, event.clientY) === null) return;
+    try {
+      zone.setPointerCapture(event.pointerId);
+    } catch {
+      /* a synthetic pointer cannot be captured; it still works, minus sliding off the zone */
+    }
+    paint();
+    schedule();
+  }
+  function onMove(event: PointerEvent): void {
+    core.move(event.pointerId, event.clientX, event.clientY);
+    paint();
+  }
+  function onUp(event: PointerEvent): void {
+    core.up(event.pointerId);
+    paint();
+    schedule();
+  }
+
+  const releaseAll = (): void => {
+    core.releaseAll();
+    paint();
+  };
+  const onVisibility = (): void => {
+    if (doc.visibilityState === 'hidden') releaseAll();
+  };
+  const onAnyPointer = (event: PointerEvent): void => {
+    if (mode === 'auto' && event.pointerType === 'touch' && !active) {
+      active = true;
+      relayout();
+    }
+  };
+  const onAnyKey = (): void => {
+    if (mode === 'auto' && active) {
+      active = false;
+      relayout();
+    }
+  };
+  const onPadConnected = (event: Event): void => {
+    if ((event as Event & { gamepad?: unknown }).gamepad !== core.gamepad) onAnyKey();
+  };
+  let frame = 0;
+  const onResize = (): void => {
+    if (frame) return;
+    frame = win.requestAnimationFrame(() => {
+      frame = 0;
+      if (visible()) relayout();
+    });
+  };
+  const preventMenu = (event: Event): void => event.preventDefault();
+
+  core.onChange((wentDown) => {
+    if (haptics && wentDown.length) (win.navigator as Navigator & { vibrate?: (ms: number) => boolean }).vibrate?.(8);
+  });
+
+  win.addEventListener('blur', releaseAll);
+  doc.addEventListener('visibilitychange', onVisibility);
+  win.addEventListener('pointerdown', onAnyPointer, { capture: true, passive: true });
+  win.addEventListener('keydown', onAnyKey, { capture: true, passive: true });
+  win.addEventListener('gamepadconnected', onPadConnected);
+  win.addEventListener('resize', onResize);
+  win.addEventListener('orientationchange', onResize);
+  root.addEventListener('contextmenu', preventMenu);
+
+  relayout();
+
+  return {
+    gamepad: core.gamepad,
+    get layout() {
+      return layout;
+    },
+    setLayout(next) {
+      layout = resolve(next);
+      relayout();
+    },
+    show() {
+      if (shown) return;
+      shown = true;
+      relayout();
+    },
+    hide() {
+      if (!shown) return;
+      shown = false;
+      relayout();
+    },
+    get visible() {
+      return visible();
+    },
+    get placement() {
+      return core.placement;
+    },
+    get gameArea() {
+      return gameArea();
+    },
+    onLayout(listener) {
+      layoutListeners.add(listener);
+      return () => layoutListeners.delete(listener);
+    },
+    onPause: (listener) => core.onPause(listener),
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      core.place(null);
+      if (timer) clearTimeout(timer);
+      if (frame) win.cancelAnimationFrame(frame);
+      win.removeEventListener('blur', releaseAll);
+      doc.removeEventListener('visibilitychange', onVisibility);
+      win.removeEventListener('pointerdown', onAnyPointer, { capture: true });
+      win.removeEventListener('keydown', onAnyKey, { capture: true });
+      win.removeEventListener('gamepadconnected', onPadConnected);
+      win.removeEventListener('resize', onResize);
+      win.removeEventListener('orientationchange', onResize);
+      layoutListeners.clear();
+      root.remove();
+    },
+  };
+}
+
+/**
+ * The host's one-liner: the pad shows while the game has the controls (the shared
+ * input is suspended) and hides while a menu is open, and its pause button opens
+ * the menu. Returns the function that undoes it.
+ */
+export function connectTouchPad(
+  pad: Pick<TouchPad, 'show' | 'hide' | 'onPause'>,
+  input: Pick<UiInput, 'suspended' | 'onSuspend' | 'trigger'>,
+): () => void {
+  const follow = (suspended: boolean): void => (suspended ? pad.show() : pad.hide());
+  follow(input.suspended);
+  const offSuspend = input.onSuspend(follow);
+  const offPause = pad.onPause(() => input.trigger('menu', { source: 'touch', repeat: false }));
+  return () => {
+    offSuspend();
+    offPause();
+  };
 }

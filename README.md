@@ -154,6 +154,23 @@ input.suspend();                             // the game has the controls now
 An app implements `EngineApp` — `mount(target, host)` — and receives `game`, `storage`, `assets`,
 the shared `input` and `exit()` from the host.
 
+## Touch screens: an on-screen gamepad
+
+On a phone or a tablet the host draws a gamepad for the console being played. It shows up in
+`navigator.getGamepads()` as a standard gamepad, so the engines read it with the gamepad code they
+already have — no engine changes:
+
+```js
+import { createTouchPad, exposeAsGamepad, connectTouchPad } from '@wasm-gaming/engine-specs';
+
+const pad = createTouchPad(document.body, { layout: 'megadrive' }); // one layout per console
+exposeAsGamepad(pad);                         // before the engine starts: SDL finds it at start-up
+connectTouchPad(pad, input);                  // shown while the game has the controls; ❚❚ = menu
+pad.onLayout((area) => fit(stage, area));     // portrait: the top half; landscape: between the sides
+```
+
+Rules in [UX.md](UX.md#touch-phones-and-tablets); try it at `demo/touchpad.html`.
+
 ## Closing the types
 
 One type parameter carries all four payloads, so there is no order to get wrong:
