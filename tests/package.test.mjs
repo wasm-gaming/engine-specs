@@ -103,6 +103,13 @@ test('the runtime members are emitted as code, not erased', async () => {
     assert.equal(typeof module[name], 'function', `${name} is not exported as a value`);
   }
   assert.equal(typeof module.hydratePlay, 'function');
+  for (const name of [
+    'localize', 'resolveLocale', 'settingsModel', 'stepSetting', 'loadSettings', 'saveSettings',
+    'createSettingsScreen', 'controlsModel', 'bindControl', 'captureBinding',
+    'createFullscreenToggle', 'createWakeLock', 'createPerfCounter', 'createFrameClock',
+  ]) {
+    assert.equal(typeof module[name], 'function', `${name} is not exported as a value`);
+  }
 
   const events = new module.EventEmitter();
   assert.equal(typeof events.on, 'function');

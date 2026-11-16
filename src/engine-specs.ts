@@ -7,6 +7,15 @@ export interface PropertyDefinition<Value = unknown> {
   live?: boolean; // Absent means `false`. `true` = changing it applies to current play session.
   enum?: readonly Value[];
   allowedTypes?: readonly string[];
+  /**
+   * The name a player reads. A property with a `label` is a **setting**: the settings
+   * screen ({@link settingsModel}) shows it; one without stays internal.
+   */
+  label?: Localized;
+  /** The settings screen's section. Absent: `'game'`. */
+  group?: SettingGroup;
+  /** The names of the {@link enum} values, in the same order. */
+  valueLabels?: readonly Localized[];
 }
 
 export type PropertiesDefinition<T> = { [K in keyof T]-?: PropertyDefinition<T[K]> };
@@ -843,6 +852,13 @@ export interface UiInput {
   trigger(action: UiAction, detail?: UiActionDetail): void;
   /** Read the gamepads once. Called every frame by the default scheduler. */
   poll(): void;
+  /**
+   * Silence everything, the menu combo included, until the returned function is
+   * called: keys pass through untouched and no action fires. For {@link captureBinding},
+   * which needs the very next key or button for itself. Optional on the type (added in
+   * 0.6.0); {@link createInput} always has it.
+   */
+  mute?(): () => void;
   /** Remove every listener and stop polling. */
   destroy(): void;
 }
@@ -887,7 +903,10 @@ export function createInput(options: UiInputOptions = {}): UiInput {
   let suspended = false;
   let destroyed = false;
   let polling = false;
+  let muted = 0;
   const held = new Map<UiAction, { since: number; last: number }>();
+  // Slots (positions in getGamepads()) whose Y was pressed as part of Select + Y.
+  const comboY = new Set<number>();
 
   // A snapshot: a listener that subscribes another one (a screen opening the next)
   // must not hand it the same action — a Set also visits entries added while it is
@@ -900,7 +919,7 @@ export function createInput(options: UiInputOptions = {}): UiInput {
   };
 
   const onKey = (event: Event): void => {
-    if (destroyed) return;
+    if (destroyed || muted > 0) return;
     const key = event as KeyboardEvent;
     if (suspended) {
       if (!menuKeys.has(key.key) || key.repeat) return;
@@ -919,14 +938,21 @@ export function createInput(options: UiInputOptions = {}): UiInput {
     fire(action, { source: 'keyboard', repeat: key.repeat === true });
   };
 
-  const pressed = (pad: UiGamepadLike): Set<UiAction> => {
+  const pressed = (pad: UiGamepadLike, slot: number): Set<UiAction> => {
     const actions = new Set<UiAction>();
+    if (pad.buttons[3]?.pressed !== true) comboY.delete(slot);
     const select = pad.buttons[8]?.pressed === true;
     const start = pad.buttons[9]?.pressed === true;
     if (select && start) actions.add('menu');
     pad.buttons.forEach((button, index) => {
       if (!button.pressed) return;
       if ((index === 8 || index === 9) && select && start) return;
+      // Select + Y is the fullscreen combo (createFullscreenToggle): Y stays quiet until
+      // it is let go, even if Select is let go first.
+      if (index === 3 && (select || comboY.has(slot))) {
+        comboY.add(slot);
+        return;
+      }
       const action = padmap[index];
       if (action) actions.add(action);
     });
@@ -942,7 +968,9 @@ export function createInput(options: UiInputOptions = {}): UiInput {
     if (destroyed) return;
     const t = now();
     const active = new Set<UiAction>();
-    for (const pad of gamepads()) if (pad) for (const action of pressed(pad)) active.add(action);
+    gamepads().forEach((pad, slot) => {
+      if (pad) for (const action of pressed(pad, slot)) active.add(action);
+    });
 
     for (const action of active) {
       const state = held.get(action);
@@ -950,6 +978,7 @@ export function createInput(options: UiInputOptions = {}): UiInput {
         held.set(action, { since: t, last: t });
         // In game only the Select + Start combo gets through (plain Start is the game's).
         const combo = action === 'menu' && gamepads().some((p) => p?.buttons[8]?.pressed && p.buttons[9]?.pressed);
+        if (muted > 0) continue;
         if (!suspended || combo) fire(action, { source: 'gamepad', repeat: false });
       } else if (
         DIRECTIONS.has(action) &&
@@ -957,7 +986,7 @@ export function createInput(options: UiInputOptions = {}): UiInput {
         t - state.last >= UI_REPEAT.interval
       ) {
         state.last = t;
-        if (!suspended) fire(action, { source: 'gamepad', repeat: true });
+        if (!suspended && muted === 0) fire(action, { source: 'gamepad', repeat: true });
       }
     }
     for (const action of [...held.keys()]) if (!active.has(action)) held.delete(action);
@@ -1005,11 +1034,20 @@ export function createInput(options: UiInputOptions = {}): UiInput {
       return () => suspendListeners.delete(listener);
     },
     trigger(action, detail = { source: 'touch', repeat: false }) {
-      if (destroyed) return;
+      if (destroyed || muted > 0) return;
       if (suspended && action !== 'menu') return;
       fire(action, detail);
     },
     poll,
+    mute() {
+      muted += 1;
+      let undone = false;
+      return () => {
+        if (undone) return;
+        undone = true;
+        muted -= 1;
+      };
+    },
     destroy() {
       destroyed = true;
       listeners.clear();
@@ -1116,6 +1154,11 @@ export interface EngineAppHost {
   input: UiInput;
   /** Leave: the host navigates back (to its library or home). Call after `unmount()` work is done. */
   exit(): void;
+  /**
+   * The language of the host's UI. The app speaks it; without it, the app calls
+   * {@link resolveLocale} (the browser's language, else English).
+   */
+  locale?: Locale;
 }
 
 /** What `mount()` returns: the way to take the app down. */
@@ -2210,5 +2253,1234 @@ export function connectTouchPad(
   return () => {
     offSuspend();
     offPause();
+  };
+}
+
+// ============================================================================
+// ---- Languages: English and Spanish, English when in doubt ----
+// ============================================================================
+//
+// Every screen of the ecosystem speaks English and Spanish and falls back to English.
+// Code and SDK error messages stay English: they are for developers.
+
+/** The languages every screen speaks. */
+export const LOCALES = ['en', 'es'] as const;
+export type Locale = (typeof LOCALES)[number];
+
+/** Player-facing text: a plain string is English; an object carries each language. */
+export type Localized = string | { readonly en: string; readonly es?: string };
+
+/** The text in `locale`, else in English. */
+export function localize(text: Localized, locale: Locale): string {
+  if (typeof text === 'string') return text;
+  return text[locale] ?? text.en;
+}
+
+const isLocale = (value: unknown): value is Locale => (LOCALES as readonly unknown[]).includes(value);
+
+/**
+ * The language to speak: `preferred` (the host's) when it is one of {@link LOCALES},
+ * else the first of the browser's languages that is (matched on the primary subtag,
+ * so `es-419` is `es`), else English.
+ */
+export function resolveLocale(
+  preferred?: string | null,
+  languages: readonly string[] = (globalThis.navigator?.languages as readonly string[] | undefined) ?? [],
+): Locale {
+  for (const tag of [preferred, ...languages]) {
+    const primary = tag?.toLowerCase().split('-')[0];
+    if (isLocale(primary)) return primary;
+  }
+  return 'en';
+}
+
+/** What engine-specs' own screens say. Apps may reuse these keys. */
+export const UI_STRINGS = Object.freeze({
+  'settings.title': { en: 'Settings', es: 'Ajustes' },
+  'settings.group.video': { en: 'Video', es: 'Vídeo' },
+  'settings.group.audio': { en: 'Audio', es: 'Audio' },
+  'settings.group.emulation': { en: 'Emulation', es: 'Emulación' },
+  'settings.group.game': { en: 'Game', es: 'Juego' },
+  'settings.group.controls': { en: 'Controls', es: 'Controles' },
+  'settings.yes': { en: 'Yes', es: 'Sí' },
+  'settings.no': { en: 'No', es: 'No' },
+  'settings.restart': { en: 'Applies on restart', es: 'Se aplica al reiniciar' },
+  'settings.reset': { en: 'Reset to defaults', es: 'Restablecer' },
+  'settings.resetAsk': { en: 'Put every setting back to its default?', es: '¿Volver a dejar todos los ajustes como venían?' },
+  'settings.hints': { en: 'A / ◀ ▶ Change · Y Details · B Back', es: 'A / ◀ ▶ Cambiar · Y Detalles · B Volver' },
+  'controls.capture': { en: 'Press a key or a button… (Escape cancels)', es: 'Pulsa una tecla o un botón… (Escape cancela)' },
+  'controls.none': { en: '—', es: '—' },
+  'fullscreen.toggle': { en: 'Fullscreen', es: 'Pantalla completa' },
+  'perf.fps': { en: '{fps} fps', es: '{fps} fps' },
+  'perf.frame': { en: '{avg} ms (worst {worst})', es: '{avg} ms (peor {worst})' },
+  'perf.dropped': { en: '{dropped} dropped', es: '{dropped} perdidos' },
+} satisfies Record<string, { en: string; es: string }>);
+
+export type UiStringKey = keyof typeof UI_STRINGS;
+
+/** One of {@link UI_STRINGS} in `locale`, with `{name}` placeholders filled. */
+export function uiText(key: UiStringKey, locale: Locale, params: Record<string, string | number> = {}): string {
+  return localize(UI_STRINGS[key], locale).replace(/\{(\w+)\}/g, (match, name: string) =>
+    name in params ? String(params[name]) : match,
+  );
+}
+
+// ============================================================================
+// ---- Settings: the player-facing properties, a model, storage and a screen ----
+// ============================================================================
+//
+// A setting is a property with a `label` (see PropertyDefinition). The model turns
+// the descriptors an SDK already returns into rows; the screen draws the rows and
+// follows UX.md; the app applies a live change and saves (per engine, in OPFS
+// `settings/<engineId>.json`, shared by all its games).
+
+/** The settings screen's sections, in the order they are shown. */
+export const SETTING_GROUPS = ['video', 'audio', 'emulation', 'game', 'controls'] as const;
+export type SettingGroup = (typeof SETTING_GROUPS)[number];
+
+/** What {@link settingsModel} reads of a property: a definition, or a spec (no `value`). */
+export type SettingDescriptor = Omit<PropertyDefinition<unknown>, 'value'> & { value?: unknown };
+
+/** One row of the settings screen. */
+export interface SettingRow {
+  key: string;
+  label: string;
+  group: SettingGroup;
+  value: unknown;
+  valueLabel: string;
+  /** The values it steps through: the `enum`, or `[false, true]`. */
+  choices: readonly unknown[];
+  choiceLabels: readonly string[];
+  /** True when the change applies to the current session; else "applies on restart". */
+  live: boolean;
+  description?: string;
+}
+
+export interface SettingsSection {
+  group: SettingGroup;
+  title: string;
+  rows: SettingRow[];
+}
+
+const settingChoices = (descriptor: SettingDescriptor): readonly unknown[] | undefined => {
+  if (descriptor.enum && descriptor.enum.length > 0) return descriptor.enum;
+  const sample = descriptor.value ?? descriptor.default;
+  return typeof sample === 'boolean' ? [false, true] : undefined;
+};
+
+const choiceLabel = (descriptor: SettingDescriptor, value: unknown, index: number, locale: Locale): string => {
+  const named = descriptor.valueLabels?.[index];
+  if (named !== undefined) return localize(named, locale);
+  if (typeof value === 'boolean') return uiText(value ? 'settings.yes' : 'settings.no', locale);
+  return String(value);
+};
+
+/**
+ * The settings screen's content: every property with a `label` and something to step
+ * through (an `enum`, or a boolean), grouped in {@link SETTING_GROUPS} order. The
+ * current value is the saved one, else the descriptor's `value`, else its `default`.
+ * Properties without a `label`, or that cannot be stepped, are left out.
+ */
+export function settingsModel(
+  described: Readonly<Record<string, SettingDescriptor>>,
+  saved: Readonly<Record<string, unknown>> = {},
+  locale: Locale = 'en',
+): SettingsSection[] {
+  const sections = new Map<SettingGroup, SettingRow[]>();
+  for (const [key, descriptor] of Object.entries(described)) {
+    if (descriptor.label === undefined) continue;
+    const choices = settingChoices(descriptor);
+    if (!choices) continue;
+    const group = descriptor.group ?? 'game';
+    const current = key in saved ? saved[key] : (descriptor.value ?? descriptor.default ?? choices[0]);
+    const choiceLabels = choices.map((choice, index) => choiceLabel(descriptor, choice, index, locale));
+    const at = choices.indexOf(current);
+    const row: SettingRow = {
+      key,
+      label: localize(descriptor.label, locale),
+      group,
+      value: current,
+      valueLabel: choiceLabels[at] ?? String(current),
+      choices,
+      choiceLabels,
+      live: descriptor.live === true,
+      ...(descriptor.description ? { description: descriptor.description } : {}),
+    };
+    sections.set(group, [...(sections.get(group) ?? []), row]);
+  }
+  return SETTING_GROUPS.filter((group) => sections.has(group)).map((group) => ({
+    group,
+    title: uiText(`settings.group.${group}`, locale),
+    rows: sections.get(group)!,
+  }));
+}
+
+/**
+ * The value a step takes a row to: `+1` forward, `-1` back. Enums and booleans wrap
+ * around; an enum of numbers (a volume) stops at its ends.
+ */
+export function stepSetting(row: Pick<SettingRow, 'value' | 'choices'>, direction: 1 | -1): unknown {
+  const { choices } = row;
+  if (choices.length === 0) return row.value;
+  const at = choices.indexOf(row.value);
+  if (at === -1) return choices[0];
+  const numeric = choices.every((choice) => typeof choice === 'number');
+  const next = at + direction;
+  if (numeric) return choices[Math.min(choices.length - 1, Math.max(0, next))];
+  return choices[(next + choices.length) % choices.length];
+}
+
+/** A row with another value, its label updated. */
+export function withSettingValue(row: SettingRow, value: unknown): SettingRow {
+  const at = row.choices.indexOf(value);
+  return { ...row, value, valueLabel: row.choiceLabels[at] ?? String(value) };
+}
+
+/** The defaults of every setting (the properties with a `label` and a `default`), for "Reset". */
+export function settingsDefaults(described: Readonly<Record<string, SettingDescriptor>>): Record<string, unknown> {
+  const defaults: Record<string, unknown> = {};
+  for (const [key, descriptor] of Object.entries(described)) {
+    if (descriptor.label !== undefined && descriptor.default !== undefined) defaults[key] = descriptor.default;
+  }
+  return defaults;
+}
+
+/**
+ * The settings engine-specs itself provides, for an app to merge into what it shows:
+ * the screen Wake Lock ({@link createWakeLock}) and the counter ({@link createPerfCounter}).
+ */
+export const SHARED_SETTINGS = Object.freeze({
+  keepScreenOn: {
+    default: true,
+    live: true,
+    group: 'video',
+    label: { en: 'Keep the screen on', es: 'Mantener la pantalla encendida' },
+    description: 'Holds a screen Wake Lock while the game runs, released when it is paused or hidden.',
+  },
+  showPerformance: {
+    default: false,
+    live: true,
+    group: 'video',
+    label: { en: 'Show performance', es: 'Mostrar rendimiento' },
+    description: 'An overlay with frames per second, frame time and dropped frames.',
+  },
+} satisfies Record<string, SettingDescriptor>);
+
+/** For an engine whose frame loop the app drives: what paces it ({@link createFrameClock}). */
+export const FRAME_SYNC_SETTING = Object.freeze({
+  frameSync: {
+    default: 'display',
+    enum: ['display', 'audio'],
+    valueLabels: [
+      { en: 'Display', es: 'Pantalla' },
+      { en: 'Audio', es: 'Audio' },
+    ],
+    live: true,
+    group: 'emulation',
+    label: { en: 'Sync', es: 'Sincronización' },
+    description: 'What paces the frames: the display refresh, or the audio clock (steady on 120 Hz screens).',
+  },
+} satisfies Record<string, SettingDescriptor>);
+
+/** What `settings/<engineId>.json` holds. */
+export interface SavedSettings {
+  version: 1;
+  values: Record<string, unknown>;
+  controls: ControlBindings;
+}
+
+const emptySettings = (): SavedSettings => ({ version: 1, values: {}, controls: {} });
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** A settings file's text, read leniently: missing or broken reads as "nothing saved". */
+export function parseSettings(text: string | null | undefined): SavedSettings {
+  if (!text) return emptySettings();
+  try {
+    const data: unknown = JSON.parse(text);
+    if (!isRecord(data)) return emptySettings();
+    const controls: ControlBindings = {};
+    if (isRecord(data.controls)) {
+      for (const [id, binding] of Object.entries(data.controls)) {
+        if (!isRecord(binding)) continue;
+        controls[id] = {
+          ...(typeof binding.key === 'string' ? { key: binding.key } : {}),
+          ...(Number.isInteger(binding.button) ? { button: binding.button as number } : {}),
+        };
+      }
+    }
+    return { version: 1, values: isRecord(data.values) ? { ...data.values } : {}, controls };
+  } catch {
+    return emptySettings();
+  }
+}
+
+/** The parts of an OPFS directory handle the storage uses (so tests can fake it). */
+export interface SettingsDirectory {
+  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<SettingsDirectory>;
+  getFileHandle(
+    name: string,
+    options?: { create?: boolean },
+  ): Promise<{
+    getFile(): Promise<{ text(): Promise<string> }>;
+    createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
+  }>;
+}
+
+const ENGINE_ID = /^[a-z0-9][a-z0-9._-]*$/i;
+
+const settingsRoot = async (root?: SettingsDirectory): Promise<SettingsDirectory> => {
+  if (root) return root;
+  const storage = globalThis.navigator?.storage as { getDirectory?: () => Promise<unknown> } | undefined;
+  if (!storage?.getDirectory) throw new Error('OPFS is not available');
+  return (await storage.getDirectory()) as SettingsDirectory;
+};
+
+/** The player's settings for an engine (OPFS `settings/<engineId>.json`). Never throws. */
+export async function loadSettings(engineId: string, root?: SettingsDirectory): Promise<SavedSettings> {
+  if (!ENGINE_ID.test(engineId)) throw new Error(`Invalid engine id: ${engineId}`);
+  try {
+    const dir = await (await settingsRoot(root)).getDirectoryHandle('settings');
+    const file = await (await dir.getFileHandle(`${engineId}.json`)).getFile();
+    return parseSettings(await file.text());
+  } catch {
+    return emptySettings();
+  }
+}
+
+/** Writes the player's settings for an engine. */
+export async function saveSettings(engineId: string, settings: SavedSettings, root?: SettingsDirectory): Promise<void> {
+  if (!ENGINE_ID.test(engineId)) throw new Error(`Invalid engine id: ${engineId}`);
+  const dir = await (await settingsRoot(root)).getDirectoryHandle('settings', { create: true });
+  const writable = await (await dir.getFileHandle(`${engineId}.json`, { create: true })).createWritable();
+  await writable.write(JSON.stringify({ version: 1, values: settings.values, controls: settings.controls }, null, 2));
+  await writable.close();
+}
+
+// ---- Controls: remapping the engine's buttons ----
+
+/** A button of the engine, as its app lists it. */
+export interface ControlButton {
+  id: string;
+  label: Localized;
+}
+
+/** What presses a button: a key (`KeyboardEvent.key`) and / or a gamepad button (standard mapping). */
+export interface ControlBinding {
+  key?: string;
+  button?: number;
+}
+
+export type ControlBindings = Record<string, ControlBinding>;
+
+/** The standard-mapping gamepad buttons by index, as UX.md names them. */
+export const PAD_BUTTON_NAMES: readonly string[] = Object.freeze([
+  'A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Select', 'Start', 'L3', 'R3', '↑', '↓', '←', '→', 'Home',
+]);
+
+const KEY_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  ' ': 'Space',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  Escape: 'Esc',
+});
+
+/** How a key is written on screen. */
+export function keyLabel(key: string | undefined): string {
+  if (key === undefined) return '';
+  const named = KEY_NAMES[key];
+  if (named !== undefined) return named;
+  return key.length === 1 ? key.toUpperCase() : key;
+}
+
+/** A row of the "Controls" group. */
+export interface ControlRow {
+  id: string;
+  label: string;
+  binding: ControlBinding;
+  keyLabel: string;
+  buttonLabel: string;
+}
+
+/** The controls rows: each button with its binding (saved, else default). */
+export function controlsModel(
+  buttons: readonly ControlButton[],
+  defaults: Readonly<ControlBindings>,
+  saved: Readonly<ControlBindings> = {},
+  locale: Locale = 'en',
+): ControlRow[] {
+  const none = uiText('controls.none', locale);
+  return buttons.map(({ id, label }) => {
+    const binding = { ...(defaults[id] ?? {}), ...(saved[id] ?? {}) };
+    return {
+      id,
+      label: localize(label, locale),
+      binding,
+      keyLabel: keyLabel(binding.key) || none,
+      buttonLabel: binding.button === undefined ? none : (PAD_BUTTON_NAMES[binding.button] ?? `#${binding.button}`),
+    };
+  });
+}
+
+/**
+ * The bindings with `id` given a new key and / or button. Another button that had it
+ * gets `id`'s old one in exchange, so no two buttons ever share a key or a button.
+ */
+export function bindControl(bindings: Readonly<ControlBindings>, id: string, change: ControlBinding): ControlBindings {
+  const next: ControlBindings = {};
+  for (const [other, binding] of Object.entries(bindings)) next[other] = { ...binding };
+  const mine = (next[id] ??= {});
+  for (const field of ['key', 'button'] as const) {
+    const value = change[field];
+    if (value === undefined) continue;
+    const old = mine[field];
+    for (const [other, binding] of Object.entries(next)) {
+      if (other === id || binding[field] !== value) continue;
+      if (old === undefined) delete binding[field];
+      else (binding as Record<string, unknown>)[field] = old;
+    }
+    (mine as Record<string, unknown>)[field] = value;
+  }
+  return next;
+}
+
+export interface CaptureOptions {
+  /** Where keys are heard. Default: the window. */
+  target?: EventTarget;
+  gamepads?: () => ReadonlyArray<UiGamepadLike | null>;
+  schedule?: ((poll: () => void) => unknown) | null;
+  signal?: AbortSignal;
+}
+
+/**
+ * The next key or gamepad button pressed, for a binding. Escape cancels (resolves
+ * `undefined`), as does `signal`. Buttons held when it starts are ignored until let
+ * go. The shared `input` is muted meanwhile ({@link UiInput.mute}), so the press
+ * neither moves a menu nor opens one.
+ */
+export function captureBinding(input?: Pick<UiInput, 'mute'>, options: CaptureOptions = {}): Promise<ControlBinding | undefined> {
+  const target = options.target ?? (globalThis as unknown as EventTarget);
+  const gamepads =
+    options.gamepads ??
+    (() => (globalThis.navigator?.getGamepads?.() ?? []) as ReadonlyArray<UiGamepadLike | null>);
+  const schedule =
+    options.schedule === undefined ? (globalThis.requestAnimationFrame?.bind(globalThis) ?? null) : options.schedule;
+  const unmute = input?.mute?.() ?? (() => undefined);
+
+  return new Promise((resolve) => {
+    let done = false;
+    const ignored = new Set<number>();
+    for (const pad of gamepads()) pad?.buttons.forEach((button, index) => button.pressed && ignored.add(index));
+
+    const finish = (binding: ControlBinding | undefined): void => {
+      if (done) return;
+      done = true;
+      target.removeEventListener('keydown', onKey, { capture: true });
+      options.signal?.removeEventListener('abort', onAbort);
+      unmute();
+      resolve(binding);
+    };
+    const onKey = (event: Event): void => {
+      const key = event as KeyboardEvent;
+      key.preventDefault();
+      key.stopPropagation();
+      if (key.repeat) return;
+      finish(key.key === 'Escape' ? undefined : { key: key.key });
+    };
+    const onAbort = (): void => finish(undefined);
+    const poll = (): void => {
+      if (done) return;
+      const down = new Set<number>();
+      for (const pad of gamepads()) pad?.buttons.forEach((button, index) => button.pressed && down.add(index));
+      for (const index of [...ignored]) if (!down.has(index)) ignored.delete(index);
+      const fresh = [...down].find((index) => !ignored.has(index));
+      if (fresh !== undefined) return finish({ button: fresh });
+      schedule?.(poll);
+    };
+
+    if (options.signal?.aborted) return finish(undefined);
+    options.signal?.addEventListener('abort', onAbort);
+    target.addEventListener('keydown', onKey, { capture: true });
+    schedule?.(poll);
+  });
+}
+
+// ---- The screen ----
+
+export interface SettingsScreenOptions {
+  sections: SettingsSection[];
+  /** The "Controls" group, when the engine's buttons can be remapped. */
+  controls?: ControlRow[];
+  /** The shared input; the screen listens while it is open (the input is not suspended in a menu). */
+  input: UiInput;
+  locale?: Locale;
+  /** A setting changed: apply it when `row.live`, and save either way. */
+  onChange(key: string, value: unknown, row: SettingRow): void;
+  /**
+   * A button was given a new binding. `bindings` is every button's, after the swap with
+   * any other that had it: the thing to save.
+   */
+  onControl?(id: string, binding: ControlBinding, bindings: ControlBindings): void;
+  /** "Reset" was confirmed: put the defaults back and save; then call `update()`. */
+  onReset(): void;
+  /** `back` at the top level. */
+  onClose(): void;
+  /** How a binding is captured. Default: {@link captureBinding}. */
+  capture?: (input: UiInput) => Promise<ControlBinding | undefined>;
+}
+
+export interface SettingsScreen {
+  readonly element: HTMLElement;
+  /** Repaint with new rows (after a reset, or a value changed elsewhere), keeping the focus. */
+  update(sections: SettingsSection[], controls?: ControlRow[]): void;
+  destroy(): void;
+}
+
+const SETTINGS_STYLE_ID = 'wg-settings-style';
+const SETTINGS_CSS = `
+.wg-settings { box-sizing: border-box; width: min(560px, 100%); max-height: 100%; overflow-y: auto;
+  display: grid; gap: var(--wg-gap, 16px); padding: 20px; color: var(--wg-text, #f4f6fb);
+  background: var(--wg-surface, rgb(18 20 28 / 0.92)); border: 1px solid var(--wg-line, rgb(255 255 255 / 0.12));
+  border-radius: var(--wg-radius, 22px); font: 16px/1.4 var(--wg-font-ui, system-ui, sans-serif); }
+.wg-settings * { box-sizing: border-box; }
+.wg-settings h2 { margin: 0; font: 600 22px/1.2 var(--wg-font-display, system-ui, sans-serif); }
+.wg-settings h3 { margin: 4px 0 0; color: var(--wg-muted, #8e97a9); font-size: 13px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; }
+.wg-settings-list { display: grid; gap: 6px; }
+.wg-settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%;
+  min-height: 48px; padding: 8px 14px; border: 1px solid transparent; border-radius: var(--wg-radius-small, 12px);
+  background: rgb(255 255 255 / 0.05); color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: transform 120ms var(--wg-ease, ease), box-shadow 120ms var(--wg-ease, ease); }
+.wg-settings-row:focus { outline: none; }
+.wg-settings-row.is-focused { box-shadow: var(--wg-focus-ring, 0 0 0 3px #fff); transform: scale(1.01); }
+.wg-settings-label { display: grid; gap: 2px; min-width: 0; }
+.wg-settings-note, .wg-settings-desc { color: var(--wg-muted, #8e97a9); font-size: 13px; }
+.wg-settings-value { flex: none; font-weight: 600; }
+.wg-settings-value::before { content: '◀ '; opacity: 0.5; }
+.wg-settings-value::after { content: ' ▶'; opacity: 0.5; }
+.wg-settings-binding { flex: none; display: flex; gap: 8px; font-weight: 600; }
+.wg-settings-binding span { min-width: 2.5em; padding: 2px 8px; border-radius: 8px; background: rgb(255 255 255 / 0.08); text-align: center; }
+.wg-settings-reset { color: var(--wg-danger, #f87171); }
+.wg-settings-ask { display: grid; gap: 10px; padding: 12px 14px; border-radius: var(--wg-radius-small, 12px); background: rgb(255 255 255 / 0.05); }
+.wg-settings-ask div { display: flex; gap: 8px; }
+.wg-settings-ask .wg-settings-row { justify-content: center; }
+.wg-settings-capture { padding: 10px 14px; border-radius: var(--wg-radius-small, 12px); background: rgb(255 255 255 / 0.08); }
+.wg-settings-hints { margin: 0; color: var(--wg-muted, #8e97a9); font-size: 13px; }
+`;
+
+type FocusTarget =
+  | { kind: 'setting'; row: SettingRow; el: HTMLElement }
+  | { kind: 'control'; row: ControlRow; el: HTMLElement }
+  | { kind: 'reset' | 'yes' | 'no'; el: HTMLElement };
+
+/**
+ * The settings screen, following UX.md: one row always focused; `up` / `down` move;
+ * `left` / `right` / `accept` change a value (`accept` on a control row waits for the
+ * new key or button); `more` shows a row's description; `back` closes. A last row
+ * resets to the defaults after asking (No first). A tap on a row acts as `accept`.
+ *
+ * It changes nothing but its own rows: the app applies, saves and, after a reset,
+ * calls `update()`.
+ */
+export function createSettingsScreen(target: HTMLElement, options: SettingsScreenOptions): SettingsScreen {
+  const doc = target.ownerDocument;
+  const locale = options.locale ?? 'en';
+  const capture = options.capture ?? ((input: UiInput) => captureBinding(input));
+  if (!doc.getElementById(SETTINGS_STYLE_ID)) {
+    const style = doc.createElement('style');
+    style.id = SETTINGS_STYLE_ID;
+    style.textContent = SETTINGS_CSS;
+    doc.head.appendChild(style);
+  }
+
+  const root = doc.createElement('section');
+  root.className = 'wg-settings';
+  root.setAttribute('role', 'dialog');
+  root.setAttribute('aria-label', uiText('settings.title', locale));
+  target.appendChild(root);
+
+  let sections = options.sections;
+  let controls = options.controls ?? [];
+  let focusAt = 0;
+  let asking = false;
+  let capturing = false;
+  let details = false;
+  let destroyed = false;
+  let targets: FocusTarget[] = [];
+
+  const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] => {
+    const node = doc.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+
+  const render = (): void => {
+    const focused = targets[focusAt];
+    const focusKey = focused ? (focused.kind === 'setting' || focused.kind === 'control' ? focused.row.label : focused.kind) : undefined;
+    root.replaceChildren();
+    targets = [];
+    root.append(el('h2', undefined, uiText('settings.title', locale)));
+
+    const rowButton = (onClick: () => void): HTMLButtonElement => {
+      const button = el('button', 'wg-settings-row');
+      button.type = 'button';
+      button.tabIndex = -1;
+      button.addEventListener('click', () => {
+        if (capturing) return;
+        focusAt = targets.findIndex((t) => t.el === button);
+        onClick();
+      });
+      return button;
+    };
+
+    for (const section of sections) {
+      root.append(el('h3', undefined, section.title));
+      const list = el('div', 'wg-settings-list');
+      for (const row of section.rows) {
+        const button = rowButton(() => change(1));
+        const label = el('span', 'wg-settings-label');
+        label.append(el('span', undefined, row.label));
+        if (!row.live) label.append(el('span', 'wg-settings-note', uiText('settings.restart', locale)));
+        button.append(label, el('span', 'wg-settings-value', row.valueLabel));
+        button.setAttribute('aria-label', `${row.label}: ${row.valueLabel}`);
+        list.append(button);
+        targets.push({ kind: 'setting', row, el: button });
+        if (details && focusKey === row.label && row.description) list.append(el('p', 'wg-settings-desc', row.description));
+      }
+      root.append(list);
+    }
+
+    if (controls.length > 0) {
+      root.append(el('h3', undefined, uiText('settings.group.controls', locale)));
+      const list = el('div', 'wg-settings-list');
+      for (const row of controls) {
+        const button = rowButton(() => void rebind(row));
+        const binding = el('span', 'wg-settings-binding');
+        binding.append(el('span', undefined, row.keyLabel), el('span', undefined, row.buttonLabel));
+        button.append(el('span', 'wg-settings-label', row.label), binding);
+        list.append(button);
+        targets.push({ kind: 'control', row, el: button });
+        if (capturing && focusKey === row.label) list.append(el('p', 'wg-settings-capture', uiText('controls.capture', locale)));
+      }
+      root.append(list);
+    }
+
+    const reset = rowButton(() => ask());
+    reset.classList.add('wg-settings-reset');
+    reset.textContent = uiText('settings.reset', locale);
+    root.append(reset);
+    targets.push({ kind: 'reset', el: reset });
+
+    if (asking) {
+      const box = el('div', 'wg-settings-ask');
+      box.append(el('span', undefined, uiText('settings.resetAsk', locale)));
+      const buttons = el('div');
+      const no = rowButton(() => answer(false));
+      no.textContent = uiText('settings.no', locale);
+      const yes = rowButton(() => answer(true));
+      yes.textContent = uiText('settings.yes', locale);
+      buttons.append(no, yes);
+      box.append(buttons);
+      root.append(box);
+      targets.push({ kind: 'no', el: no }, { kind: 'yes', el: yes });
+    }
+
+    root.append(el('p', 'wg-settings-hints', uiText('settings.hints', locale)));
+
+    // Keep the focus on the same row across a repaint.
+    if (focusKey !== undefined) {
+      const again = targets.findIndex((t) =>
+        t.kind === 'setting' || t.kind === 'control' ? t.row.label === focusKey : t.kind === focusKey,
+      );
+      if (again !== -1) focusAt = again;
+    }
+    focusAt = Math.min(Math.max(0, focusAt), targets.length - 1);
+    paintFocus();
+  };
+
+  const paintFocus = (): void => {
+    targets.forEach((t, index) => t.el.classList.toggle('is-focused', index === focusAt));
+    const current = targets[focusAt]?.el;
+    current?.focus({ preventScroll: true });
+    current?.scrollIntoView?.({ block: 'nearest' });
+  };
+
+  const change = (direction: 1 | -1): void => {
+    const current = targets[focusAt];
+    if (current?.kind !== 'setting') return;
+    const value = stepSetting(current.row, direction);
+    if (value === current.row.value) return;
+    const row = withSettingValue(current.row, value);
+    sections = sections.map((section) => ({ ...section, rows: section.rows.map((r) => (r.key === row.key ? row : r)) }));
+    render();
+    options.onChange(row.key, value, row);
+  };
+
+  const rebind = async (row: ControlRow): Promise<void> => {
+    if (capturing) return;
+    capturing = true;
+    render();
+    const binding = await capture(options.input);
+    capturing = false;
+    if (destroyed) return;
+    if (binding) {
+      const bindings: ControlBindings = Object.fromEntries(controls.map((c) => [c.id, c.binding]));
+      const next = bindControl(bindings, row.id, binding);
+      controls = controls.map((c) => {
+        const b = next[c.id] ?? {};
+        const none = uiText('controls.none', locale);
+        return {
+          ...c,
+          binding: b,
+          keyLabel: keyLabel(b.key) || none,
+          buttonLabel: b.button === undefined ? none : (PAD_BUTTON_NAMES[b.button] ?? `#${b.button}`),
+        };
+      });
+      options.onControl?.(row.id, next[row.id] ?? {}, next);
+    }
+    render();
+  };
+
+  const ask = (): void => {
+    asking = true;
+    render();
+    focusAt = targets.findIndex((t) => t.kind === 'no');
+    paintFocus();
+  };
+
+  const answer = (yes: boolean): void => {
+    asking = false;
+    render();
+    focusAt = targets.findIndex((t) => t.kind === 'reset');
+    paintFocus();
+    if (yes) options.onReset();
+  };
+
+  const move = (direction: 1 | -1): void => {
+    const next = focusAt + direction;
+    if (asking) {
+      const kinds = targets[next]?.kind;
+      if (kinds === 'yes' || kinds === 'no') focusAt = next;
+    } else if (targets[next] && targets[next].kind !== 'yes' && targets[next].kind !== 'no') {
+      focusAt = next;
+      if (details) {
+        details = false;
+        render();
+        return;
+      }
+    }
+    paintFocus();
+  };
+
+  const off = options.input.on((action) => {
+    if (destroyed || capturing) return;
+    const current = targets[focusAt];
+    switch (action) {
+      case 'up':
+        return move(-1);
+      case 'down':
+        return move(1);
+      case 'left':
+      case 'right':
+        if (asking) return move(action === 'left' ? -1 : 1);
+        return change(action === 'left' ? -1 : 1);
+      case 'accept':
+        return current?.el.click();
+      case 'more':
+        if (current?.kind === 'setting' && current.row.description) {
+          details = !details;
+          render();
+        }
+        return;
+      case 'back':
+        if (asking) return answer(false);
+        if (details) {
+          details = false;
+          return render();
+        }
+        return options.onClose();
+      default:
+        return;
+    }
+  });
+
+  render();
+
+  return {
+    element: root,
+    update(nextSections, nextControls) {
+      sections = nextSections;
+      if (nextControls) controls = nextControls;
+      render();
+    },
+    destroy() {
+      destroyed = true;
+      off();
+      root.remove();
+    },
+  };
+}
+
+// ============================================================================
+// ---- Fullscreen: Cmd+Enter (macOS) / Alt+Enter, and Select + Y ----
+// ============================================================================
+
+export type Platform = 'mac' | 'other';
+
+/** macOS (and iPadOS) or anything else, from the user agent's platform. */
+export function platformOf(nav: { userAgentData?: { platform?: string }; platform?: string } | undefined = globalThis.navigator as never): Platform {
+  const name = nav?.userAgentData?.platform || nav?.platform || '';
+  return /mac|iphone|ipad|ipod/i.test(name) ? 'mac' : 'other';
+}
+
+/** A key with its modifiers. */
+export interface KeyShortcut {
+  key: string;
+  alt?: boolean;
+  meta?: boolean;
+  ctrl?: boolean;
+  shift?: boolean;
+}
+
+/** The fullscreen key: Cmd+Enter on macOS, Alt+Enter elsewhere (the owner's choice). */
+export function fullscreenShortcut(platform: Platform = platformOf()): KeyShortcut {
+  return platform === 'mac' ? { key: 'Enter', meta: true } : { key: 'Enter', alt: true };
+}
+
+/** Select + Y (standard mapping 8 + 3). Select + Start stays the menu. */
+export const FULLSCREEN_PAD_COMBO: readonly number[] = Object.freeze([8, 3]);
+
+/** Whether a keydown is `shortcut` (exact modifiers; never inside a text field). */
+export function isShortcut(
+  event: Pick<KeyboardEvent, 'key' | 'altKey' | 'metaKey' | 'ctrlKey' | 'shiftKey'> & { target?: EventTarget | null },
+  shortcut: KeyShortcut,
+): boolean {
+  if (isEditable(event.target ?? null)) return false;
+  return (
+    event.key === shortcut.key &&
+    event.altKey === Boolean(shortcut.alt) &&
+    event.metaKey === Boolean(shortcut.meta) &&
+    event.ctrlKey === Boolean(shortcut.ctrl) &&
+    event.shiftKey === Boolean(shortcut.shift)
+  );
+}
+
+export interface FullscreenToggleOptions {
+  /** Where keys are heard (capture phase, ahead of the engine). Default: the window. */
+  target?: EventTarget;
+  shortcut?: KeyShortcut;
+  /** Gamepad buttons pressed together. Default {@link FULLSCREEN_PAD_COMBO}. */
+  combo?: readonly number[];
+  gamepads?: () => ReadonlyArray<UiGamepadLike | null>;
+  schedule?: ((poll: () => void) => unknown) | null;
+}
+
+export interface FullscreenToggle {
+  /** Enter or leave fullscreen on the root (also the pause-menu entry). */
+  toggle(): Promise<void>;
+  readonly active: boolean;
+  /** Hear every change; returns the unsubscribe function. */
+  onChange(listener: (active: boolean) => void): () => void;
+  /** Read the gamepads once (called every frame by the default scheduler). */
+  poll(): void;
+  destroy(): void;
+}
+
+/**
+ * The fullscreen toggle of an engine app: {@link fullscreenShortcut} on the keyboard
+ * and {@link FULLSCREEN_PAD_COMBO} on any gamepad, in game and in menus. Browsers
+ * allow fullscreen only from a user gesture; a pad press counts in Chromium but not
+ * everywhere, which is why the pause menu has the entry too.
+ */
+export function createFullscreenToggle(root: Element, options: FullscreenToggleOptions = {}): FullscreenToggle {
+  const doc = root.ownerDocument;
+  const target = options.target ?? (globalThis as unknown as EventTarget);
+  const shortcut = options.shortcut ?? fullscreenShortcut();
+  const combo = options.combo ?? FULLSCREEN_PAD_COMBO;
+  const gamepads =
+    options.gamepads ??
+    (() => (globalThis.navigator?.getGamepads?.() ?? []) as ReadonlyArray<UiGamepadLike | null>);
+  const schedule =
+    options.schedule === undefined ? (globalThis.requestAnimationFrame?.bind(globalThis) ?? null) : options.schedule;
+  const listeners = new Set<(active: boolean) => void>();
+  let destroyed = false;
+  let polling = false;
+  let held = false;
+
+  const active = (): boolean => doc.fullscreenElement === root;
+  const toggle = async (): Promise<void> => {
+    try {
+      if (active()) await doc.exitFullscreen();
+      else await root.requestFullscreen();
+    } catch {
+      // Refused (no user gesture, or not allowed): nothing changes.
+    }
+  };
+  const onKey = (event: Event): void => {
+    const key = event as KeyboardEvent;
+    if (destroyed || key.repeat || !isShortcut(key, shortcut)) return;
+    key.preventDefault();
+    key.stopPropagation();
+    void toggle();
+  };
+  const onChange = (): void => {
+    for (const listener of [...listeners]) listener(active());
+  };
+  const poll = (): void => {
+    if (destroyed) return;
+    const down = gamepads().some((pad) => pad && combo.every((index) => pad.buttons[index]?.pressed));
+    if (down && !held) void toggle();
+    held = down;
+  };
+  const loop = (): void => {
+    if (destroyed || !schedule) return;
+    poll();
+    schedule(loop);
+  };
+  const startPolling = (): void => {
+    if (polling || !schedule) return;
+    polling = true;
+    schedule(loop);
+  };
+
+  target.addEventListener('keydown', onKey, { capture: true });
+  target.addEventListener('gamepadconnected', startPolling);
+  doc.addEventListener('fullscreenchange', onChange);
+  if (gamepads().some(Boolean)) startPolling();
+
+  return {
+    toggle,
+    get active() {
+      return active();
+    },
+    onChange(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    poll,
+    destroy() {
+      destroyed = true;
+      listeners.clear();
+      target.removeEventListener('keydown', onKey, { capture: true });
+      target.removeEventListener('gamepadconnected', startPolling);
+      doc.removeEventListener('fullscreenchange', onChange);
+    },
+  };
+}
+
+// ============================================================================
+// ---- Performance: Wake Lock, a frame counter, an audio-paced clock ----
+// ============================================================================
+
+/** The parts of `navigator.wakeLock` used (so tests can fake it). */
+export interface WakeLockLike {
+  request(type: 'screen'): Promise<{ release(): Promise<void>; addEventListener(type: 'release', listener: () => void): void }>;
+}
+
+export interface WakeLockOptions {
+  wakeLock?: WakeLockLike;
+  document?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
+}
+
+export interface WakeLockHandle {
+  /** Wanted while the game runs (and the setting is on); not while paused. */
+  setActive(active: boolean): void;
+  /** Whether a lock is held right now. */
+  readonly held: boolean;
+  destroy(): void;
+}
+
+/**
+ * The screen kept on while playing: a Wake Lock held while `setActive(true)` and the
+ * page is visible, taken again when it comes back into view (the browser drops it on
+ * hide). Without the API it does nothing.
+ */
+export function createWakeLock(options: WakeLockOptions = {}): WakeLockHandle {
+  const api = options.wakeLock ?? (globalThis.navigator as unknown as { wakeLock?: WakeLockLike } | undefined)?.wakeLock;
+  const doc = options.document ?? (globalThis.document as Document | undefined);
+  let wanted = false;
+  let destroyed = false;
+  let sentinel: { release(): Promise<void> } | null = null;
+  let pending = false;
+
+  const visible = (): boolean => !doc || doc.visibilityState === 'visible';
+  const acquire = async (): Promise<void> => {
+    if (!api || sentinel || pending || !wanted || !visible() || destroyed) return;
+    pending = true;
+    try {
+      const lock = await api.request('screen');
+      sentinel = lock;
+      lock.addEventListener('release', () => {
+        if (sentinel === lock) sentinel = null;
+      });
+      if (!wanted || destroyed) await release();
+    } catch {
+      // Refused (battery saver, not visible): try again on the next chance.
+    } finally {
+      pending = false;
+    }
+  };
+  const release = async (): Promise<void> => {
+    const lock = sentinel;
+    sentinel = null;
+    await lock?.release().catch(() => undefined);
+  };
+  const onVisibility = (): void => {
+    if (visible()) void acquire();
+  };
+  doc?.addEventListener('visibilitychange', onVisibility);
+
+  return {
+    setActive(active) {
+      wanted = active;
+      if (active) void acquire();
+      else void release();
+    },
+    get held() {
+      return sentinel !== null;
+    },
+    destroy() {
+      destroyed = true;
+      wanted = false;
+      doc?.removeEventListener('visibilitychange', onVisibility);
+      void release();
+    },
+  };
+}
+
+/** Frames per second, frame time and dropped frames over a window of frame times. */
+export interface FrameStats {
+  fps: number;
+  /** Mean frame time, ms. */
+  avg: number;
+  /** Longest frame, ms. */
+  worst: number;
+  /** Frames lost in gaps longer than 1.5 frames at `expectedFps`. */
+  dropped: number;
+}
+
+/** The stats of frame timestamps (ms, ascending) — usually the last second's. */
+export function frameStats(times: readonly number[], expectedFps = 60): FrameStats {
+  if (times.length < 2) return { fps: 0, avg: 0, worst: 0, dropped: 0 };
+  const expected = 1000 / expectedFps;
+  let worst = 0;
+  let dropped = 0;
+  for (let i = 1; i < times.length; i++) {
+    const gap = (times[i] ?? 0) - (times[i - 1] ?? 0);
+    worst = Math.max(worst, gap);
+    if (gap > expected * 1.5) dropped += Math.round(gap / expected) - 1;
+  }
+  const span = (times[times.length - 1] ?? 0) - (times[0] ?? 0);
+  const avg = span / (times.length - 1);
+  return { fps: avg > 0 ? 1000 / avg : 0, avg, worst, dropped };
+}
+
+export interface PerfCounterOptions {
+  locale?: Locale;
+  expectedFps?: number;
+  now?: () => number;
+  schedule?: ((step: () => void) => unknown) | null;
+}
+
+export interface PerfCounter {
+  /** Call once per emulated frame. Without calls, display frames are counted instead. */
+  frame(): void;
+  show(): void;
+  hide(): void;
+  readonly visible: boolean;
+  readonly stats: FrameStats;
+  destroy(): void;
+}
+
+/**
+ * The "Show performance" overlay: frames per second, frame time (mean and worst over
+ * the last second) and dropped frames, in a corner of `target`.
+ */
+export function createPerfCounter(target: HTMLElement, options: PerfCounterOptions = {}): PerfCounter {
+  const doc = target.ownerDocument;
+  const locale = options.locale ?? 'en';
+  const expectedFps = options.expectedFps ?? 60;
+  const now = options.now ?? (() => globalThis.performance?.now() ?? Date.now());
+  const schedule =
+    options.schedule === undefined ? (globalThis.requestAnimationFrame?.bind(globalThis) ?? null) : options.schedule;
+  const box = doc.createElement('div');
+  box.className = 'wg-perf';
+  box.style.cssText =
+    'position:absolute;top:calc(8px + var(--wg-safe-top, 0px));left:8px;z-index:10;padding:4px 8px;border-radius:8px;' +
+    'background:rgb(0 0 0 / 0.65);color:#fff;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;pointer-events:none;white-space:pre';
+  box.hidden = true;
+  target.appendChild(box);
+
+  let times: number[] = [];
+  let fed = false;
+  let lastPaint = 0;
+  let stats: FrameStats = { fps: 0, avg: 0, worst: 0, dropped: 0 };
+  let destroyed = false;
+  let looping = false;
+
+  const paint = (): void => {
+    if (box.hidden) return;
+    box.textContent = [
+      uiText('perf.fps', locale, { fps: stats.fps.toFixed(0) }),
+      uiText('perf.frame', locale, { avg: stats.avg.toFixed(1), worst: stats.worst.toFixed(1) }),
+      uiText('perf.dropped', locale, { dropped: stats.dropped }),
+    ].join('\n');
+  };
+  const record = (t: number): void => {
+    times.push(t);
+    const from = t - 1000;
+    let cut = 0;
+    while (cut < times.length && (times[cut] ?? 0) < from) cut++;
+    if (cut > 0) times = times.slice(cut);
+    if (t - lastPaint >= 250) {
+      lastPaint = t;
+      stats = frameStats(times, expectedFps);
+      paint();
+    }
+  };
+  const loop = (): void => {
+    if (destroyed || box.hidden || !schedule) {
+      looping = false;
+      return;
+    }
+    if (!fed) record(now());
+    schedule(loop);
+  };
+
+  return {
+    frame() {
+      fed = true;
+      record(now());
+    },
+    show() {
+      box.hidden = false;
+      lastPaint = -Infinity;
+      paint();
+      if (!looping && schedule) {
+        looping = true;
+        schedule(loop);
+      }
+    },
+    hide() {
+      box.hidden = true;
+    },
+    get visible() {
+      return !box.hidden;
+    },
+    get stats() {
+      return stats;
+    },
+    destroy() {
+      destroyed = true;
+      box.remove();
+    },
+  };
+}
+
+/** How many frames are due after `elapsed` ms at `fps`, and the remainder carried to the next call. */
+export function framesDue(elapsed: number, fps: number, carried = 0): { frames: number; carried: number } {
+  const frame = 1000 / fps;
+  const total = Math.max(0, elapsed) + carried;
+  const frames = Math.floor(total / frame);
+  return { frames, carried: total - frames * frame };
+}
+
+export type FrameSync = 'display' | 'audio';
+
+/** The parts of an `AudioContext` the clock reads. */
+export interface AudioClockLike {
+  readonly currentTime: number;
+  readonly state: string;
+}
+
+export interface FrameClockOptions {
+  fps?: number;
+  mode?: FrameSync;
+  /** The clock in `'audio'` mode (while it runs; else the display clock is used). */
+  audioContext?: AudioClockLike;
+  /** Most frames run in one tick; beyond it the backlog is dropped (no spiral after a stall). Default 4. */
+  maxFrames?: number;
+  now?: () => number;
+  schedule?: ((step: () => void) => unknown) | null;
+}
+
+export interface FrameClock {
+  /** Calls `tick(frames)` each display frame with the number of emulated frames due (0 or more). */
+  start(tick: (frames: number) => void): void;
+  stop(): void;
+  mode: FrameSync;
+  /** Advance by hand (when `schedule` is `null`). */
+  step(): void;
+}
+
+/**
+ * The frame loop of an engine the app drives. `'display'` counts time on the page
+ * clock; `'audio'` on the `AudioContext`'s, so the game runs at `fps` whatever the
+ * screen's refresh rate, and stays in step with its sound.
+ */
+export function createFrameClock(options: FrameClockOptions = {}): FrameClock {
+  const fps = options.fps ?? 60;
+  const maxFrames = options.maxFrames ?? 4;
+  const now = options.now ?? (() => globalThis.performance?.now() ?? Date.now());
+  const schedule =
+    options.schedule === undefined ? (globalThis.requestAnimationFrame?.bind(globalThis) ?? null) : options.schedule;
+  let mode: FrameSync = options.mode ?? 'display';
+  let tick: ((frames: number) => void) | null = null;
+  let last: number | null = null;
+  let carried = 0;
+  let source: FrameSync = mode;
+
+  const clock = (): { at: number; source: FrameSync } => {
+    const audio = options.audioContext;
+    if (mode === 'audio' && audio && audio.state === 'running') return { at: audio.currentTime * 1000, source: 'audio' };
+    return { at: now(), source: 'display' };
+  };
+  const step = (): void => {
+    if (!tick) return;
+    const reading = clock();
+    // A switch of clock (audio started or stopped, or the mode changed) restarts the count.
+    if (last === null || reading.source !== source) {
+      last = reading.at;
+      source = reading.source;
+      carried = 0;
+      tick(0);
+      return;
+    }
+    const due = framesDue(reading.at - last, fps, carried);
+    last = reading.at;
+    if (due.frames > maxFrames) {
+      carried = 0;
+      tick(maxFrames);
+    } else {
+      carried = due.carried;
+      tick(due.frames);
+    }
+  };
+  const loop = (): void => {
+    if (!tick) return;
+    step();
+    schedule?.(loop);
+  };
+
+  return {
+    start(next) {
+      const running = tick !== null;
+      tick = next;
+      last = null;
+      if (!running) schedule?.(loop);
+    },
+    stop() {
+      tick = null;
+    },
+    get mode() {
+      return mode;
+    },
+    set mode(value) {
+      mode = value;
+    },
+    step,
   };
 }

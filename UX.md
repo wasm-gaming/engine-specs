@@ -34,7 +34,7 @@ Select + Start pressed together is `menu`, and then neither fires on its own.
 4. **`menu` opens and closes the pause menu** from anywhere in the game. In game that is
    **Select + Start** (gamepad) or **Escape** (keyboard) — plain Start belongs to the game (it starts
    it, pauses it natively…). The pause menu always offers, in this order: Continue, the engine's own
-   entries (load / save state, options…), and Exit to the library.
+   entries (load / save state…), **Settings**, **Fullscreen**, and Exit to the library.
 5. **While a menu is open the game gets no input**, and while the game runs the menus get nothing
    but the menu combo: `input.suspend()` / `input.resume()`; the engine is paused
    (`play.pause(owner)`) whenever a menu is open.
@@ -72,6 +72,54 @@ tapped.
   frame is held 50 ms, so the game sees it.
 - **Targets ≥ 48 px** (rule 8), inside the safe areas; a short vibration on press where the
   device has one. Hints show touch glyphs when the last action came from `'touch'`.
+
+## Languages
+
+Every screen speaks **English and Spanish**, and falls back to English. The host passes its
+language (`EngineAppHost.locale`); without it the app uses `resolveLocale()` (the browser's,
+else English). Player-facing text is `Localized` (`{ en, es }`) and read through `localize()`.
+Code, comments and SDK error messages are English only: the app shows its own words and keeps the
+SDK's message as a detail.
+
+## Settings
+
+"Settings" in the pause menu opens `createSettingsScreen()`. What it shows comes from the
+engine's own descriptors: every property with a `label` is a setting (`settingsModel()`).
+
+- **Sections**, in this order, each shown only when it has rows: Video, Audio, Emulation, Game,
+  Controls.
+- **A row** shows its label and its value. A setting that is not `live` says "Applies on
+  restart".
+- **`up` / `down`** move. **`left` / `right`** change the value, and so does **`accept`**:
+  enums and switches wrap around; a numeric scale (volume) stops at its ends. On touch, a tap
+  steps forward.
+- **`more`** shows the row's description. **`back`** closes the screen, back to the pause menu.
+- A change applies at once when it is live, and is **saved either way**, per engine, for all its
+  games (`saveSettings()`, OPFS `settings/<engine>.json`). The game stays paused behind the
+  screen; the picture shows a video change under it.
+- The last row, **"Reset to defaults"**, asks first, with No focused (rule 6).
+- The shared settings, offered by every engine that can honour them:
+  - Video → "Keep the screen on" (on by default): a Wake Lock while playing, released on pause.
+  - Video → "Show performance": frames per second, frame time, dropped frames.
+  - Emulation → "Sync: display / audio", where the app drives the frame loop: the audio clock
+    keeps the speed steady on 120 Hz screens.
+
+## Controls
+
+The "Controls" section lists the engine's buttons, each with its key and its gamepad button.
+
+- `accept` on a row waits for the next key or button (the shared input is suspended meanwhile);
+  **Escape cancels**.
+- A key or button another row already had is **swapped** with it, never shared.
+- Saved with the settings; "Reset to defaults" restores them too.
+
+## Fullscreen
+
+- **Keyboard: Cmd+Enter on macOS, Alt+Enter on Windows and Linux.** F11 is the browser's own.
+  It is ignored in text fields.
+- **Gamepad: Select + Y.** Select + Start stays the menu.
+- It works in game and in menus, and the pause menu has the entry too: some browsers grant
+  fullscreen only to a click or a key, not to a pad press.
 
 ## Engine apps
 

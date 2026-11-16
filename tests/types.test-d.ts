@@ -20,6 +20,8 @@ import type {
   PropertyDefinition,
 } from '../src/engine-specs.js';
 import { DummyEngine } from './engine.conformance.js';
+import { resolveLocale, settingsModel } from '../src/engine-specs.js';
+import type { Localized, SettingGroup, SettingsSection } from '../src/engine-specs.js';
 import type { DummyConfig, DummyOptions, DummyPayloads } from './engine.conformance.js';
 
 // ---- Assertion helpers ----
@@ -65,6 +67,12 @@ async function host() {
   const config = await sdk.config();
   type _read = Assert<Equals<typeof config.region.value, 'us' | 'eu' | 'jp'>>;
   type _enum = Assert<Equals<typeof config.region.enum, readonly ('us' | 'eu' | 'jp')[] | undefined>>;
+
+  // The settings fields (0.6.0) ride on every descriptor, and the model reads them.
+  type _label = Assert<Equals<typeof config.scanlines.label, Localized | undefined>>;
+  type _group = Assert<Equals<typeof config.scanlines.group, SettingGroup | undefined>>;
+  const sections: SettingsSection[] = settingsModel(config, {}, resolveLocale());
+  void sections;
 
   // Writing chains, and keeps the factory type.
   const chained = sdk.config({ scanlines: true }).options({ slot: 1 });
@@ -253,3 +261,7 @@ sdk.emit('error', { error: new Error('forged') });
 const _badHandler: EngineInit<DummyPayloads> = { on: { start: (event) => event.zone } };
 
 export { host, openEngine, listening, openEvents };
+
+// A group is one of the screen's sections, nothing else.
+// @ts-expect-error
+const _badGroup: import('../src/engine-specs.js').SettingDescriptor = { label: 'X', group: 'graphics' };
