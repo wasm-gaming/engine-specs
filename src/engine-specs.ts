@@ -2505,6 +2505,7 @@ export function parseSettings(text: string | null | undefined): SavedSettings {
         if (!isRecord(binding)) continue;
         controls[id] = {
           ...(typeof binding.key === 'string' ? { key: binding.key } : {}),
+          ...(typeof binding.code === 'string' ? { code: binding.code } : {}),
           ...(Number.isInteger(binding.button) ? { button: binding.button as number } : {}),
         };
       }

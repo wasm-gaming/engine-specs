@@ -98,8 +98,8 @@ test('parseSettings reads a broken or missing file as nothing saved', () => {
   assert.deepEqual(parseSettings('{not json'), empty);
   assert.deepEqual(parseSettings('[1,2]'), empty);
   assert.deepEqual(
-    parseSettings('{"version":1,"values":{"volume":50},"controls":{"jump":{"key":"z","button":0},"bad":3,"run":{"button":"x"}}}'),
-    { version: 1, values: { volume: 50 }, controls: { jump: { key: 'z', button: 0 }, run: {} } },
+    parseSettings('{"version":1,"values":{"volume":50},"controls":{"jump":{"key":"z","code":"KeyZ","button":0},"bad":3,"run":{"button":"x"}}}'),
+    { version: 1, values: { volume: 50 }, controls: { jump: { key: 'z', code: 'KeyZ', button: 0 }, run: {} } },
   );
 });
 
