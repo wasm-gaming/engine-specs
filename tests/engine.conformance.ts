@@ -66,10 +66,19 @@ const spec: EngineSpec<DummyPayloads> = {
       // Not changeable on a running engine: the engine re-reads it at boot.
       live: false,
     },
-    scanlines: { default: false, live: true },
+    // A setting: a `label` puts it on the settings screen (0.6.0), in a group, with
+    // names for its values when it is an enum.
+    scanlines: { default: false, live: true, label: { en: 'Scanlines', es: 'Scanlines' }, group: 'video' },
   },
   options: {
-    player: { default: 'sonic', enum: ['sonic', 'tails'], live: true },
+    player: {
+      default: 'sonic',
+      enum: ['sonic', 'tails'],
+      live: true,
+      label: 'Player',
+      group: 'game',
+      valueLabels: ['Sonic', { en: 'Tails', es: 'Tails' }],
+    },
     slot: { default: 0, live: true },
   },
   assets: {

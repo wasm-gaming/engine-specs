@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Settings demo</title>
+    <!--
+      An engine app's pause menu with "Settings" (0.6.0), against a stand-in game: a
+      square bouncing at 60 frames a second on the frame clock.
+
+      - Settings: Video (smoothing, keep the screen on, show performance), Audio
+        (volume), Emulation (sync, region: applies on restart), Controls (remapping).
+        Saved in OPFS settings/demo.json, so a reload keeps them.
+      - Language: English / Spanish, the switch at the top of the pause menu.
+      - Fullscreen: Cmd+Enter (macOS) / Alt+Enter, Select + Y, or the menu entry.
+
+      Like the other demos it runs from `site/demo/`, where `make site` puts the built
+      `../src/engine-specs.js`. Escape (or Select + Start) opens the pause menu.
+    -->
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--wg-bg, #07080c); color: var(--wg-text, #f4f6fb);
+        font: 16px/1.4 var(--wg-font-ui, system-ui, sans-serif); overflow: hidden; }
+      #app { position: fixed; inset: 0; display: grid; place-items: center; background: #05060a; }
+      #game { width: min(100vw, calc(100vh * 4 / 3)); aspect-ratio: 4 / 3; background: #0b1020; }
+      #app.smooth #game { image-rendering: auto; }
+      #app:not(.smooth) #game { image-rendering: pixelated; }
+      #overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px;
+        background: rgb(0 0 0 / 0.55); }
+      #overlay[hidden] { display: none; }
+      .menu { width: min(420px, 100%); display: grid; gap: 8px; padding: 20px; border-radius: var(--wg-radius, 22px);
+        background: var(--wg-surface, rgb(18 20 28 / 0.92)); border: 1px solid var(--wg-line, rgb(255 255 255 / 0.12)); }
+      .menu h1 { margin: 0 0 8px; font-size: 22px; }
+      .menu button { min-height: 48px; padding: 8px 16px; border: 0; border-radius: var(--wg-radius-small, 12px);
+        background: rgb(255 255 255 / 0.06); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+      .menu button.is-focused { box-shadow: var(--wg-focus-ring, 0 0 0 3px #fff); }
+      .lang { display: flex; gap: 8px; }
+      .lang button { flex: 1; text-align: center; }
+      .lang button[aria-pressed='true'] { outline: 2px solid var(--wg-ok, #4ade80); }
+      .menu a { color: var(--wg-muted, #8e97a9); font-size: 14px; }
+      #overlay:not([hidden]) ~ #hint { display: none; }
+      #hint { position: fixed; bottom: 12px; left: 0; right: 0; text-align: center; color: var(--wg-muted, #8e97a9); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"><canvas id="game" width="160" height="120"></canvas></div>
+    <div id="overlay" hidden></div>
+    <p id="hint"></p>
+
+    <script type="module">
+      import {
+        uiTokensCss,
+        createInput,
+        resolveLocale,
+        uiText,
+        settingsModel,
+        settingsDefaults,
+        SHARED_SETTINGS,
+        FRAME_SYNC_SETTING,
+        loadSettings,
+        saveSettings,
+        controlsModel,
+        createSettingsScreen,
+        createFullscreenToggle,
+        createWakeLock,
+        createPerfCounter,
+        createFrameClock,
+      } from '../src/engine-specs.js';
+
+      document.head.insertAdjacentHTML('beforeend', `<style>${uiTokensCss()}</style>`);
+
+      // What the engine describes (its config() / options() descriptors), plus the shared ones.
+      const DESCRIBED = {
+        renderFilter: {
+          default: 'pixelated',
+          enum: ['pixelated', 'smooth'],
+          valueLabels: [{ en: 'Sharp pixels', es: 'Píxeles nítidos' }, { en: 'Smooth', es: 'Suavizado' }],
+          label: { en: 'Smoothing', es: 'Suavizado' },
+          group: 'video',
+          live: true,
+          description: 'How the picture is scaled up: sharp pixels, or smoothed.',
+        },
+        ...SHARED_SETTINGS,
+        volume: { default: 100, enum: [0, 25, 50, 75, 100], label: { en: 'Volume', es: 'Volumen' }, group: 'audio', live: true },
+        ...FRAME_SYNC_SETTING,
+        region: {
+          default: 'ntsc',
+          enum: ['ntsc', 'pal'],
+          valueLabels: ['NTSC (60 Hz)', 'PAL (50 Hz)'],
+          label: { en: 'Region', es: 'Región' },
+          group: 'emulation',
+          description: 'The console region; the game restarts to change it.',
+        },
+        debugUrl: { default: '', description: 'internal: not a setting (no label)' },
+      };
+      const BUTTONS = [
+        { id: 'jump', label: { en: 'Jump', es: 'Saltar' } },
+        { id: 'run', label: { en: 'Run', es: 'Correr' } },
+        { id: 'start', label: 'Start' },
+      ];
+      const DEFAULT_CONTROLS = { jump: { key: 'z', button: 0 }, run: { key: 'x', button: 2 }, start: { key: 'Enter', button: 9 } };
+
+      const app = document.querySelector('#app');
+      const overlay = document.querySelector('#overlay');
+      const hint = document.querySelector('#hint');
+      const input = createInput();
+      const fullscreen = createFullscreenToggle(document.documentElement);
+      const wakeLock = createWakeLock();
+      const perf = createPerfCounter(app);
+      const clock = createFrameClock({ fps: 60 });
+
+      let locale = resolveLocale(new URLSearchParams(location.search).get('lang'));
+      let saved = await loadSettings('demo').catch(() => ({ version: 1, values: {}, controls: {} }));
+      const value = (key) => (key in saved.values ? saved.values[key] : DESCRIBED[key].default);
+      const save = () => saveSettings('demo', saved).catch((err) => console.warn('settings not saved', err));
+
+      // The live settings, applied.
+      const apply = () => {
+        app.classList.toggle('smooth', value('renderFilter') === 'smooth');
+        wakeLock.setActive(playing && value('keepScreenOn'));
+        if (value('showPerformance')) perf.show();
+        else perf.hide();
+        clock.mode = value('frameSync');
+        document.documentElement.lang = locale;
+        hint.textContent = locale === 'es' ? 'Escape: pausa · Alt/Cmd+Enter o Select + Y: pantalla completa' : 'Escape: pause · Alt/Cmd+Enter or Select + Y: fullscreen';
+      };
+
+      // The stand-in game: a square that bounces, one step per emulated frame.
+      const ctx = document.querySelector('#game').getContext('2d');
+      const ball = { x: 10, y: 20, dx: 1, dy: 1 };
+      let playing = false;
+      const frame = () => {
+        ball.x += ball.dx; ball.y += ball.dy;
+        if (ball.x < 0 || ball.x > 150) ball.dx *= -1;
+        if (ball.y < 0 || ball.y > 110) ball.dy *= -1;
+        perf.frame();
+      };
+      const draw = () => {
+        ctx.fillStyle = '#0b1020'; ctx.fillRect(0, 0, 160, 120);
+        ctx.fillStyle = '#ff79b8'; ctx.fillRect(Math.round(ball.x), Math.round(ball.y), 10, 10);
+      };
+      clock.start((frames) => {
+        if (!playing) return;
+        for (let i = 0; i < frames; i++) frame();
+        draw();
+      });
+
+      // ---- Menus ----
+      let menuOff = () => {};
+      let screen = null;
+
+      const play = () => {
+        overlay.hidden = true;
+        overlay.replaceChildren();
+        menuOff();
+        playing = true;
+        input.suspend();
+        apply();
+      };
+
+      const pauseMenu = () => {
+        playing = false;
+        input.resume();
+        apply();
+        screen?.destroy();
+        screen = null;
+        overlay.hidden = false;
+        const box = document.createElement('div');
+        box.className = 'menu';
+        const title = document.createElement('h1');
+        title.textContent = locale === 'es' ? 'Pausa' : 'Paused';
+        const lang = document.createElement('div');
+        lang.className = 'lang';
+        const items = [];
+        const button = (text, onClick, parent = box) => {
+          const b = document.createElement('button');
+          b.textContent = text;
+          b.addEventListener('click', onClick);
+          parent.append(b);
+          items.push(b);
+          return b;
+        };
+        box.append(title);
+        button(locale === 'es' ? 'Continuar' : 'Continue', play);
+        button(uiText('settings.title', locale), openSettings);
+        button(uiText('fullscreen.toggle', locale), () => fullscreen.toggle());
+        box.append(lang);
+        for (const code of ['en', 'es']) {
+          const b = button(code === 'en' ? 'English' : 'Español', () => { locale = code; pauseMenu(); }, lang);
+          b.setAttribute('aria-pressed', String(code === locale));
+        }
+        const back = document.createElement('a');
+        back.href = './';
+        back.textContent = '← engine-specs demo';
+        box.append(back);
+        overlay.replaceChildren(box);
+        let at = 0;
+        const paint = () => items.forEach((b, i) => b.classList.toggle('is-focused', i === at));
+        paint();
+        menuOff();
+        menuOff = input.on((action) => {
+          if (screen) return;
+          if (action === 'down' || action === 'right') at = Math.min(items.length - 1, at + 1);
+          else if (action === 'up' || action === 'left') at = Math.max(0, at - 1);
+          else if (action === 'accept') return items[at].click();
+          else if (action === 'back' || action === 'menu') return play();
+          paint();
+        });
+      };
+
+      const openSettings = () => {
+        overlay.replaceChildren();
+        const model = () => settingsModel(DESCRIBED, saved.values, locale);
+        const controls = () => controlsModel(BUTTONS, DEFAULT_CONTROLS, saved.controls, locale);
+        screen = createSettingsScreen(overlay, {
+          sections: model(),
+          controls: controls(),
+          input,
+          locale,
+          onChange(key, next) {
+            saved.values = { ...saved.values, [key]: next };
+            apply();
+            void save();
+          },
+          onControl(_id, _binding, bindings) {
+            saved.controls = bindings;
+            void save();
+          },
+          onReset() {
+            saved = { version: 1, values: settingsDefaults(DESCRIBED), controls: {} };
+            apply();
+            void save();
+            screen.update(model(), controls());
+          },
+          onClose: pauseMenu,
+        });
+      };
+
+      input.on((action) => {
+        if (action === 'menu' && input.suspended) pauseMenu();
+      });
+
+      apply();
+      if (new URLSearchParams(location.search).has('menu')) pauseMenu();
+      else play();
+    </script>
+  </body>
+</html>

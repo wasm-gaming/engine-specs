@@ -1,0 +1,303 @@
+// 0.6.0: languages, settings, controls, fullscreen and performance. The pure parts, plus
+// the runtime ones against fakes (event targets, gamepads, a Wake Lock, a clock).
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  localize,
+  resolveLocale,
+  uiText,
+  settingsModel,
+  stepSetting,
+  withSettingValue,
+  settingsDefaults,
+  SHARED_SETTINGS,
+  FRAME_SYNC_SETTING,
+  parseSettings,
+  loadSettings,
+  saveSettings,
+  controlsModel,
+  bindControl,
+  keyLabel,
+  captureBinding,
+  platformOf,
+  fullscreenShortcut,
+  isShortcut,
+  createFullscreenToggle,
+  createWakeLock,
+  frameStats,
+  framesDue,
+  createFrameClock,
+  createInput,
+} from '../dist/engine-specs.js';
+
+test('localize falls back to English; resolveLocale prefers the host, then the browser', () => {
+  assert.equal(localize('Smoothing', 'es'), 'Smoothing');
+  assert.equal(localize({ en: 'Smoothing', es: 'Suavizado' }, 'es'), 'Suavizado');
+  assert.equal(localize({ en: 'Smoothing' }, 'es'), 'Smoothing');
+  assert.equal(resolveLocale('es', ['en-US']), 'es');
+  assert.equal(resolveLocale('fr', ['fr-FR', 'es-419', 'en']), 'es');
+  assert.equal(resolveLocale(undefined, ['de-DE']), 'en');
+  assert.equal(uiText('perf.dropped', 'es', { dropped: 3 }), '3 perdidos');
+});
+
+const DESCRIBED = {
+  renderFilter: {
+    value: 'pixelated',
+    default: 'pixelated',
+    enum: ['pixelated', 'smooth'],
+    valueLabels: [{ en: 'Sharp pixels', es: 'Píxeles nítidos' }, { en: 'Smooth', es: 'Suavizado' }],
+    label: { en: 'Smoothing', es: 'Suavizado' },
+    group: 'video',
+    live: true,
+  },
+  volume: { default: 100, enum: [0, 25, 50, 75, 100], label: 'Volume', group: 'audio', live: true },
+  region: { default: 'auto', enum: ['auto', 'ntsc', 'pal'], label: 'Region', group: 'emulation', description: 'Console region.' },
+  romUrl: { value: 'x.bin', description: 'internal' },
+  ...SHARED_SETTINGS,
+};
+
+test('settingsModel: labelled properties, grouped in order, current values and their labels', () => {
+  const sections = settingsModel(DESCRIBED, { volume: 50 }, 'es');
+  assert.deepEqual(sections.map((s) => [s.group, s.title, s.rows.map((r) => r.key)]), [
+    ['video', 'Vídeo', ['renderFilter', 'keepScreenOn', 'showPerformance']],
+    ['audio', 'Audio', ['volume']],
+    ['emulation', 'Emulación', ['region']],
+  ]);
+  const [filter, keepOn] = sections[0].rows;
+  assert.equal(filter.label, 'Suavizado');
+  assert.equal(filter.valueLabel, 'Píxeles nítidos');
+  assert.equal(keepOn.value, true);
+  assert.equal(keepOn.valueLabel, 'Sí');
+  assert.equal(sections[1].rows[0].value, 50);
+  assert.equal(sections[2].rows[0].live, false);
+  assert.equal(sections[2].rows[0].description, 'Console region.');
+});
+
+test('stepSetting: enums and booleans wrap, numeric enums stop at their ends', () => {
+  const [video, audio, emulation] = settingsModel(DESCRIBED, { volume: 100 });
+  assert.equal(stepSetting(video.rows[0], 1), 'smooth');
+  assert.equal(stepSetting(withSettingValue(video.rows[0], 'smooth'), 1), 'pixelated');
+  assert.equal(stepSetting(video.rows[1], 1), false);
+  assert.equal(stepSetting(audio.rows[0], 1), 100);
+  assert.equal(stepSetting(audio.rows[0], -1), 75);
+  assert.equal(stepSetting(emulation.rows[0], -1), 'pal');
+  assert.equal(withSettingValue(video.rows[0], 'smooth').valueLabel, 'Smooth');
+});
+
+test('settingsDefaults: the defaults of the settings only', () => {
+  assert.deepEqual(settingsDefaults(DESCRIBED), {
+    renderFilter: 'pixelated', volume: 100, region: 'auto', keepScreenOn: true, showPerformance: false,
+  });
+  assert.equal(settingsModel(FRAME_SYNC_SETTING, {}, 'es')[0].rows[0].valueLabel, 'Pantalla');
+});
+
+test('parseSettings reads a broken or missing file as nothing saved', () => {
+  const empty = { version: 1, values: {}, controls: {} };
+  assert.deepEqual(parseSettings(undefined), empty);
+  assert.deepEqual(parseSettings('{not json'), empty);
+  assert.deepEqual(parseSettings('[1,2]'), empty);
+  assert.deepEqual(
+    parseSettings('{"version":1,"values":{"volume":50},"controls":{"jump":{"key":"z","button":0},"bad":3,"run":{"button":"x"}}}'),
+    { version: 1, values: { volume: 50 }, controls: { jump: { key: 'z', button: 0 }, run: {} } },
+  );
+});
+
+/** An OPFS directory in memory. */
+function fakeDirectory() {
+  const files = new Map();
+  const dir = (prefix) => ({
+    async getDirectoryHandle(name, { create } = {}) {
+      const path = `${prefix}${name}/`;
+      if (!create && ![...files.keys()].some((key) => key.startsWith(path))) throw new Error('NotFoundError');
+      return dir(path);
+    },
+    async getFileHandle(name, { create } = {}) {
+      const path = `${prefix}${name}`;
+      if (!create && !files.has(path)) throw new Error('NotFoundError');
+      return {
+        async getFile() { return { text: async () => files.get(path) }; },
+        async createWritable() {
+          let data = '';
+          return { async write(chunk) { data += chunk; }, async close() { files.set(path, data); } };
+        },
+      };
+    },
+  });
+  return { root: dir(''), files };
+}
+
+test('loadSettings / saveSettings: settings/<engineId>.json, per engine', async () => {
+  const { root, files } = fakeDirectory();
+  assert.deepEqual(await loadSettings('snes9x', root), { version: 1, values: {}, controls: {} });
+  await saveSettings('snes9x', { version: 1, values: { volume: 75 }, controls: { a: { key: 'x' } } }, root);
+  assert.ok(files.has('settings/snes9x.json'));
+  assert.deepEqual((await loadSettings('snes9x', root)).values, { volume: 75 });
+  assert.deepEqual((await loadSettings('mgba', root)).values, {});
+  await assert.rejects(loadSettings('../x', root), /Invalid engine id/);
+});
+
+const BUTTONS = [
+  { id: 'jump', label: { en: 'Jump', es: 'Saltar' } },
+  { id: 'run', label: 'Run' },
+];
+const DEFAULTS = { jump: { key: 'z', button: 0 }, run: { key: 'x', button: 2 } };
+
+test('controlsModel: saved over defaults, with key and button names', () => {
+  const rows = controlsModel(BUTTONS, DEFAULTS, { run: { key: ' ' } }, 'es');
+  assert.deepEqual(rows.map((r) => [r.label, r.keyLabel, r.buttonLabel]), [['Saltar', 'Z', 'A'], ['Run', 'Space', 'X']]);
+  assert.equal(keyLabel('ArrowUp'), '↑');
+});
+
+test('bindControl swaps a key or a button another one had, never duplicates', () => {
+  const next = bindControl(DEFAULTS, 'jump', { key: 'x' });
+  assert.deepEqual(next, { jump: { key: 'x', button: 0 }, run: { key: 'z', button: 2 } });
+  const pad = bindControl(next, 'run', { button: 0 });
+  assert.deepEqual(pad, { jump: { key: 'x', button: 2 }, run: { key: 'z', button: 0 } });
+  assert.deepEqual(bindControl({ a: { key: 'q' } }, 'b', { key: 'q' }), { a: {}, b: { key: 'q' } });
+});
+
+const keyEvent = (key, extra = {}) => {
+  const event = new Event('keydown', { cancelable: true });
+  Object.assign(event, { key, repeat: false, altKey: false, metaKey: false, ctrlKey: false, shiftKey: false, ...extra });
+  return event;
+};
+const pad = (pressed = []) => ({ buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i) })), axes: [0, 0] });
+
+test('captureBinding: the next key, Escape cancels, and the input is muted meanwhile', async () => {
+  const target = new EventTarget();
+  const input = createInput({ target, gamepads: () => [], schedule: null });
+  input.suspend(); // in game, Escape would open the menu…
+  const seen = [];
+  input.on((action) => seen.push(action));
+  const pending = captureBinding(input, { target, gamepads: () => [], schedule: null });
+  const key = keyEvent('k');
+  target.dispatchEvent(key);
+  assert.deepEqual(await pending, { key: 'k' });
+  assert.equal(key.defaultPrevented, true);
+
+  const cancelled = captureBinding(input, { target, gamepads: () => [], schedule: null });
+  target.dispatchEvent(keyEvent('Escape'));
+  assert.equal(await cancelled, undefined);
+  assert.deepEqual(seen, []); // …but not while a binding is captured
+  target.dispatchEvent(keyEvent('Escape'));
+  assert.deepEqual(seen, ['menu']);
+});
+
+test('captureBinding: a gamepad button, ignoring one held when it started', async () => {
+  const state = { pads: [pad([0])] };
+  let step;
+  const pending = captureBinding(undefined, { target: new EventTarget(), gamepads: () => state.pads, schedule: (fn) => (step = fn) });
+  step();
+  state.pads = [pad([0, 3])];
+  step();
+  assert.deepEqual(await pending, { button: 3 });
+});
+
+test('the fullscreen key: Cmd+Enter on macOS, Alt+Enter elsewhere, never in a text field', () => {
+  assert.equal(platformOf({ userAgentData: { platform: 'macOS' } }), 'mac');
+  assert.equal(platformOf({ platform: 'Win32' }), 'other');
+  const mac = fullscreenShortcut('mac');
+  const other = fullscreenShortcut('other');
+  assert.equal(isShortcut(keyEvent('Enter', { metaKey: true }), mac), true);
+  assert.equal(isShortcut(keyEvent('Enter', { altKey: true }), mac), false);
+  assert.equal(isShortcut(keyEvent('Enter', { altKey: true }), other), true);
+  assert.equal(isShortcut(keyEvent('Enter', { altKey: true, shiftKey: true }), other), false);
+  assert.equal(isShortcut({ ...keyEvent('Enter', { altKey: true }), key: 'Enter', altKey: true, metaKey: false, ctrlKey: false, shiftKey: false, target: { tagName: 'INPUT' } }, other), false);
+});
+
+test('createFullscreenToggle: the key and Select + Y toggle the root', async () => {
+  const doc = new EventTarget();
+  doc.fullscreenElement = null;
+  const root = { ownerDocument: doc, async requestFullscreen() { doc.fullscreenElement = root; } };
+  doc.exitFullscreen = async () => { doc.fullscreenElement = null; };
+  const target = new EventTarget();
+  const state = { pads: [pad()] };
+  const toggle = createFullscreenToggle(root, { target, shortcut: fullscreenShortcut('other'), gamepads: () => state.pads, schedule: null });
+  target.dispatchEvent(keyEvent('Enter', { altKey: true }));
+  await new Promise((r) => setTimeout(r));
+  assert.equal(toggle.active, true);
+  state.pads = [pad([8, 3])];
+  toggle.poll();
+  toggle.poll(); // held: once only
+  await new Promise((r) => setTimeout(r));
+  assert.equal(toggle.active, false);
+  toggle.destroy();
+});
+
+test('createWakeLock: held while active and visible, taken again on return', async () => {
+  const locks = [];
+  const wakeLock = {
+    async request() {
+      const listeners = [];
+      const lock = { released: false, async release() { lock.released = true; listeners.forEach((l) => l()); }, addEventListener: (_t, l) => listeners.push(l) };
+      locks.push(lock);
+      return lock;
+    },
+  };
+  const doc = new EventTarget();
+  doc.visibilityState = 'visible';
+  const handle = createWakeLock({ wakeLock, document: doc });
+  handle.setActive(true);
+  await new Promise((r) => setTimeout(r));
+  assert.equal(handle.held, true);
+  await locks[0].release(); // the browser drops it on hide
+  doc.visibilityState = 'visible';
+  doc.dispatchEvent(new Event('visibilitychange'));
+  await new Promise((r) => setTimeout(r));
+  assert.equal(locks.length, 2);
+  assert.equal(handle.held, true);
+  handle.setActive(false);
+  await new Promise((r) => setTimeout(r));
+  assert.equal(handle.held, false);
+  assert.equal(locks[1].released, true);
+});
+
+test('frameStats: fps, mean and worst frame time, dropped frames', () => {
+  const times = [0, 16.7, 33.3, 50, 100, 116.7];
+  const stats = frameStats(times, 60);
+  assert.equal(stats.dropped, 2);
+  assert.equal(stats.worst, 50);
+  assert.ok(Math.abs(stats.avg - 116.7 / 5) < 0.01);
+  assert.deepEqual(frameStats([5]), { fps: 0, avg: 0, worst: 0, dropped: 0 });
+});
+
+test('framesDue and createFrameClock: frames counted on the audio clock, not the display', () => {
+  assert.deepEqual(framesDue(50, 60, 0).frames, 3);
+  const { frames, carried } = framesDue(10, 60, 10);
+  assert.equal(frames, 1);
+  assert.ok(Math.abs(carried - (20 - 1000 / 60)) < 1e-9);
+
+  let page = 0;
+  const audio = { currentTime: 0, state: 'running' };
+  const clock = createFrameClock({ fps: 60, mode: 'audio', audioContext: audio, now: () => page, schedule: null });
+  const ticks = [];
+  clock.start((n) => ticks.push(n));
+  clock.step(); // first reading
+  // A 120 Hz display: two page frames per audio frame.
+  for (let i = 0; i < 4; i++) {
+    page += 1000 / 120;
+    audio.currentTime += 1 / 120;
+    clock.step();
+  }
+  assert.deepEqual(ticks.slice(1).reduce((a, b) => a + b, 0), 2);
+  // A stall: the backlog is capped.
+  audio.currentTime += 1;
+  clock.step();
+  assert.equal(ticks.at(-1), 4);
+});
+
+test('createInput: Y does not fire while Select is held (Select + Y is fullscreen)', () => {
+  const state = { pads: [pad([8, 3])] };
+  const input = createInput({ target: new EventTarget(), gamepads: () => state.pads, now: () => 0, schedule: null });
+  const seen = [];
+  input.on((action) => seen.push(action));
+  input.poll();
+  state.pads = [pad([3])];
+  input.poll();
+  assert.deepEqual(seen, []); // still held from the combo: no new press
+  state.pads = [pad()];
+  input.poll();
+  state.pads = [pad([3])];
+  input.poll();
+  assert.deepEqual(seen, ['more']);
+});
