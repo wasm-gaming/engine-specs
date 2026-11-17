@@ -859,6 +859,14 @@ export interface UiInput {
    * 0.6.0); {@link createInput} always has it.
    */
   mute?(): () => void;
+  /**
+   * More keys for the menus, by `KeyboardEvent.code`: the keys a player bound to the pad
+   * buttons the menus use ({@link menuKeyAliases}), so the key bound to the game's A accepts
+   * like the pad's A. Heard after the keymap, with the same rules (not while suspended,
+   * muted or typing). Replaces the previous set; `{}` clears it. Optional on the type
+   * (added in 0.6.2); {@link createInput} always has it.
+   */
+  setKeyAliases?(aliases: Readonly<Record<string, UiAction>>): void;
   /** Remove every listener and stop polling. */
   destroy(): void;
 }
@@ -904,6 +912,7 @@ export function createInput(options: UiInputOptions = {}): UiInput {
   let destroyed = false;
   let polling = false;
   let muted = 0;
+  let aliases: Readonly<Record<string, UiAction>> = {};
   const held = new Map<UiAction, { since: number; last: number }>();
   // Slots (positions in getGamepads()) whose Y was pressed as part of Select + Y.
   const comboY = new Set<number>();
@@ -929,7 +938,7 @@ export function createInput(options: UiInputOptions = {}): UiInput {
       return;
     }
     if (isEditable(key.target) && key.key !== 'Escape') return;
-    const action = keymap[key.key];
+    const action = keymap[key.key] ?? (key.code ? aliases[key.code] : undefined);
     if (!action) return;
     if (swallow) {
       key.preventDefault();
@@ -1047,6 +1056,9 @@ export function createInput(options: UiInputOptions = {}): UiInput {
         undone = true;
         muted -= 1;
       };
+    },
+    setKeyAliases(next) {
+      aliases = { ...next };
     },
     destroy() {
       destroyed = true;
@@ -2618,6 +2630,60 @@ export function codeLabel(code: string | undefined): string {
   if (match?.[1]) return match[1];
   if (code.startsWith('Numpad')) return `Num ${code.slice(6)}`;
   return code;
+}
+
+/** The `key` a physical key types on a US layout, as far as the menus' keymap needs it. */
+function keyOfCode(code: string): string | undefined {
+  const letter = /^Key([A-Z])$/.exec(code)?.[1];
+  if (letter) return letter.toLowerCase();
+  const digit = /^Digit(\d)$/.exec(code)?.[1];
+  if (digit) return digit;
+  if (code === 'Space') return ' ';
+  if (code === 'NumpadEnter') return 'Enter';
+  return code; // Enter, Escape, Backspace, Tab, ArrowUp…, F1… are their own key
+}
+
+/**
+ * The keys a player bound to the pad buttons the menus use, for
+ * {@link UiInput.setKeyAliases}: a pause menu's hints say "A" and "B", and the key bound to
+ * the game's A should then accept like the pad's A.
+ *
+ * `controls` are the game's buttons, each with its current key (`code`) and the pad button
+ * the menus read it as (`button`): the engine's default layout, which is what an engine
+ * that remaps the pad shows the menus. A key the menus already use (`keymap`: Enter, Space,
+ * Escape, Q, E, V, the arrows…) keeps its meaning and is left out.
+ */
+export function menuKeyAliases(
+  controls: Iterable<{ code?: string; button?: number }>,
+  options: { keymap?: Readonly<Record<string, UiAction>>; padmap?: Readonly<Record<number, UiAction>> } = {},
+): Record<string, UiAction> {
+  const keymap = options.keymap ?? UI_KEYMAP;
+  const padmap = options.padmap ?? UI_PADMAP;
+  const out: Record<string, UiAction> = {};
+  for (const { code, button } of controls) {
+    if (!code || button === undefined) continue;
+    const action = padmap[button];
+    if (!action) continue;
+    const key = keyOfCode(code);
+    if (key !== undefined && (keymap[key] !== undefined || keymap[key.toUpperCase()] !== undefined)) continue;
+    out[code] = action;
+  }
+  return out;
+}
+
+/**
+ * The key a hint shows next to a pad button ("B · S"): the key bound to the game button the
+ * menus read as `button` (see {@link menuKeyAliases}), when it works in the menus; `''` if none.
+ */
+export function menuKeyHint(
+  controls: Iterable<{ code?: string; button?: number }>,
+  button: number,
+  options: { keymap?: Readonly<Record<string, UiAction>>; padmap?: Readonly<Record<number, UiAction>> } = {},
+): string {
+  const list = [...controls];
+  const aliases = menuKeyAliases(list, options);
+  const found = list.find((control) => control.button === button && control.code && aliases[control.code]);
+  return found?.code ? codeLabel(found.code) : '';
 }
 
 /** How a binding's key is written: by its `code` when it has one, else by its `key`. */

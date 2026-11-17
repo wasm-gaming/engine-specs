@@ -24,6 +24,8 @@ import {
   fullscreenShortcut,
   isShortcut,
   createFullscreenToggle,
+  menuKeyAliases,
+  menuKeyHint,
   createWakeLock,
   frameStats,
   framesDue,
@@ -283,6 +285,64 @@ test('createFullscreenToggle: Escape is locked while fullscreen, and given back 
   doc.dispatchEvent(new Event('fullscreenchange'));
   assert.equal(heard, 0);
   d.destroy();
+});
+
+// BlastEm's layout: the game's buttons, their keys, and the pad button each one is.
+const MD = [
+  { id: 'a', code: 'KeyA', button: 0 },
+  { id: 'b', code: 'KeyS', button: 1 },
+  { id: 'c', code: 'KeyD', button: 5 },
+  { id: 'x', code: 'KeyQ', button: 2 },
+  { id: 'y', code: 'KeyW', button: 3 },
+  { id: 'z', code: 'KeyE', button: 4 },
+  { id: 'start', code: 'Enter', button: 9 },
+  { id: 'up', code: 'ArrowUp', button: 12 },
+];
+
+test('menuKeyAliases: the keys of the pad buttons the menus use, minus the menus\' own keys', () => {
+  assert.deepEqual(menuKeyAliases(MD), { KeyA: 'accept', KeyS: 'back', KeyD: 'next', KeyW: 'more' });
+  assert.deepEqual(menuKeyAliases([{ code: 'KeyJ', button: 0 }, { code: 'KeyK' }, { button: 1 }]), { KeyJ: 'accept' });
+});
+
+test('menuKeyHint: the key shown next to a pad button', () => {
+  assert.equal(menuKeyHint(MD, 0), 'A');
+  assert.equal(menuKeyHint(MD, 1), 'S');
+  assert.equal(menuKeyHint(MD, 2), ''); // Q is the menus' prev
+  assert.equal(menuKeyHint(MD, 9), ''); // Enter is the menus' accept
+});
+
+test('createInput: key aliases act in menus, not in game, not while muted or typing', () => {
+  const target = new EventTarget();
+  const input = createInput({ target, schedule: null, gamepads: () => [] });
+  const heard = [];
+  input.on((action) => heard.push(action));
+  const press = (code, { field = false } = {}) => {
+    const event = Object.assign(new Event('keydown', { cancelable: true }), { key: code.replace(/^Key/, '').toLowerCase(), code, repeat: false });
+    // Typing in a field: the event's target is the field (read-only on an Event, so shadowed).
+    if (field) Object.defineProperty(event, 'target', { value: { tagName: 'INPUT' } });
+    target.dispatchEvent(event);
+    return event;
+  };
+  press('KeyS');
+  assert.deepEqual(heard, []);
+  input.setKeyAliases(menuKeyAliases(MD));
+  const ev = press('KeyS');
+  assert.deepEqual(heard, ['back']);
+  assert.equal(ev.defaultPrevented, true);
+  press('KeyA');
+  assert.deepEqual(heard, ['back', 'accept']);
+  input.suspend();
+  press('KeyA');
+  input.resume();
+  const unmute = input.mute();
+  press('KeyA');
+  unmute();
+  press('KeyA', { field: true });
+  assert.deepEqual(heard, ['back', 'accept']);
+  input.setKeyAliases({});
+  press('KeyA');
+  assert.deepEqual(heard, ['back', 'accept']);
+  input.destroy();
 });
 
 test('createWakeLock: held while active and visible, taken again on return', async () => {

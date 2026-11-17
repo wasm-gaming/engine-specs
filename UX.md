@@ -19,6 +19,11 @@ Menus react to actions, never to raw keys or buttons.
 | `menu` — pause / main menu | Start (9) in menus; Select + Start always | F1; Escape in game |
 | `prev` / `next` — tabs, pages | LB (4) / RB (5) | Q / E |
 
+**The keys bound to the pad's buttons work too.** An engine app hands the launcher's input the
+keys of its controls (`menuKeyAliases()` → `input.setKeyAliases()`): the key bound to the game's A
+accepts like the pad's A, the one bound to B goes back, and so on. A key the table above already
+uses keeps its meaning. Hints show the pad button with its key next to it (`menuKeyHint()`).
+
 Directions repeat while held: first after **380 ms**, then every **110 ms**. Buttons never repeat.
 Select + Start pressed together is `menu`, and then neither fires on its own.
 
