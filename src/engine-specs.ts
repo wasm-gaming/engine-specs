@@ -2565,9 +2565,14 @@ export interface ControlButton {
   label: Localized;
 }
 
-/** What presses a button: a key (`KeyboardEvent.key`) and / or a gamepad button (standard mapping). */
+/**
+ * What presses a button: a key and / or a gamepad button (standard mapping). A key is
+ * `KeyboardEvent.code` (the physical key, whatever the layout: what emulators bind) and
+ * / or `KeyboardEvent.key` (the character); a captured one carries both.
+ */
 export interface ControlBinding {
   key?: string;
+  code?: string;
   button?: number;
 }
 
@@ -2586,6 +2591,38 @@ const KEY_NAMES: Readonly<Record<string, string>> = Object.freeze({
   ArrowRight: '→',
   Escape: 'Esc',
 });
+
+const CODE_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  Escape: 'Esc',
+  ShiftLeft: 'Shift (L)',
+  ShiftRight: 'Shift (R)',
+  ControlLeft: 'Ctrl (L)',
+  ControlRight: 'Ctrl (R)',
+  AltLeft: 'Alt (L)',
+  AltRight: 'Alt (R)',
+  MetaLeft: 'Meta (L)',
+  MetaRight: 'Meta (R)',
+});
+
+/** How a physical key (`KeyboardEvent.code`) is written on screen: `KeyX` → `X`. */
+export function codeLabel(code: string | undefined): string {
+  if (code === undefined) return '';
+  const named = CODE_NAMES[code];
+  if (named !== undefined) return named;
+  const match = /^(?:Key|Digit)(.)$/.exec(code);
+  if (match?.[1]) return match[1];
+  if (code.startsWith('Numpad')) return `Num ${code.slice(6)}`;
+  return code;
+}
+
+/** How a binding's key is written: by its `code` when it has one, else by its `key`. */
+export function bindingKeyLabel(binding: ControlBinding): string {
+  return binding.code !== undefined ? codeLabel(binding.code) : keyLabel(binding.key);
+}
 
 /** How a key is written on screen. */
 export function keyLabel(key: string | undefined): string {
@@ -2618,7 +2655,7 @@ export function controlsModel(
       id,
       label: localize(label, locale),
       binding,
-      keyLabel: keyLabel(binding.key) || none,
+      keyLabel: bindingKeyLabel(binding) || none,
       buttonLabel: binding.button === undefined ? none : (PAD_BUTTON_NAMES[binding.button] ?? `#${binding.button}`),
     };
   });
@@ -2627,21 +2664,41 @@ export function controlsModel(
 /**
  * The bindings with `id` given a new key and / or button. Another button that had it
  * gets `id`'s old one in exchange, so no two buttons ever share a key or a button.
+ * Keys are the same key when their `code`s match (or, without codes, their `key`s);
+ * `key` and `code` move together.
  */
 export function bindControl(bindings: Readonly<ControlBindings>, id: string, change: ControlBinding): ControlBindings {
   const next: ControlBindings = {};
   for (const [other, binding] of Object.entries(bindings)) next[other] = { ...binding };
   const mine = (next[id] ??= {});
-  for (const field of ['key', 'button'] as const) {
-    const value = change[field];
-    if (value === undefined) continue;
-    const old = mine[field];
+  const keyOf = (binding: ControlBinding): { key?: string; code?: string } => ({
+    ...(binding.key !== undefined ? { key: binding.key } : {}),
+    ...(binding.code !== undefined ? { code: binding.code } : {}),
+  });
+  const sameKey = (a: ControlBinding, b: ControlBinding): boolean =>
+    a.code !== undefined && b.code !== undefined ? a.code === b.code : a.key !== undefined && a.key === b.key;
+  const setKey = (binding: ControlBinding, value: { key?: string; code?: string }): void => {
+    delete binding.key;
+    delete binding.code;
+    Object.assign(binding, value);
+  };
+
+  if (change.key !== undefined || change.code !== undefined) {
+    const old = keyOf(mine);
+    const value = keyOf(change);
     for (const [other, binding] of Object.entries(next)) {
-      if (other === id || binding[field] !== value) continue;
-      if (old === undefined) delete binding[field];
-      else (binding as Record<string, unknown>)[field] = old;
+      if (other !== id && sameKey(binding, value)) setKey(binding, old);
     }
-    (mine as Record<string, unknown>)[field] = value;
+    setKey(mine, value);
+  }
+  if (change.button !== undefined) {
+    const old = mine.button;
+    for (const [other, binding] of Object.entries(next)) {
+      if (other === id || binding.button !== change.button) continue;
+      if (old === undefined) delete binding.button;
+      else binding.button = old;
+    }
+    mine.button = change.button;
   }
   return next;
 }
@@ -2687,7 +2744,7 @@ export function captureBinding(input?: Pick<UiInput, 'mute'>, options: CaptureOp
       key.preventDefault();
       key.stopPropagation();
       if (key.repeat) return;
-      finish(key.key === 'Escape' ? undefined : { key: key.key });
+      finish(key.key === 'Escape' ? undefined : { key: key.key, ...(key.code ? { code: key.code } : {}) });
     };
     const onAbort = (): void => finish(undefined);
     const poll = (): void => {
@@ -2935,7 +2992,7 @@ export function createSettingsScreen(target: HTMLElement, options: SettingsScree
         return {
           ...c,
           binding: b,
-          keyLabel: keyLabel(b.key) || none,
+          keyLabel: bindingKeyLabel(b) || none,
           buttonLabel: b.button === undefined ? none : (PAD_BUTTON_NAMES[b.button] ?? `#${b.button}`),
         };
       });

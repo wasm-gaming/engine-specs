@@ -18,6 +18,7 @@ import {
   controlsModel,
   bindControl,
   keyLabel,
+  codeLabel,
   captureBinding,
   platformOf,
   fullscreenShortcut,
@@ -170,9 +171,9 @@ test('captureBinding: the next key, Escape cancels, and the input is muted meanw
   const seen = [];
   input.on((action) => seen.push(action));
   const pending = captureBinding(input, { target, gamepads: () => [], schedule: null });
-  const key = keyEvent('k');
+  const key = keyEvent('k', { code: 'KeyK' });
   target.dispatchEvent(key);
-  assert.deepEqual(await pending, { key: 'k' });
+  assert.deepEqual(await pending, { key: 'k', code: 'KeyK' });
   assert.equal(key.defaultPrevented, true);
 
   const cancelled = captureBinding(input, { target, gamepads: () => [], schedule: null });
@@ -300,4 +301,17 @@ test('createInput: Y does not fire while Select is held (Select + Y is fullscree
   state.pads = [pad([3])];
   input.poll();
   assert.deepEqual(seen, ['more']);
+});
+
+test('0.6.1: bindings by physical key — labels, swaps, and key + code moving together', () => {
+  assert.deepEqual(['KeyX', 'Digit1', 'ArrowUp', 'ShiftRight', 'Numpad4', 'Space', 'F2'].map(codeLabel), ['X', '1', '↑', 'Shift (R)', 'Num 4', 'Space', 'F2']);
+  const defaults = { a: { code: 'KeyX', button: 0 }, b: { code: 'KeyZ', button: 1 } };
+  assert.deepEqual(controlsModel([{ id: 'a', label: 'A' }], defaults).map((r) => r.keyLabel), ['X']);
+  // B takes X (captured: key and code): A gets Z.
+  assert.deepEqual(bindControl(defaults, 'b', { key: 'x', code: 'KeyX' }), {
+    a: { code: 'KeyZ', button: 0 },
+    b: { key: 'x', code: 'KeyX', button: 1 },
+  });
+  // Without codes, keys still compare by key.
+  assert.deepEqual(bindControl({ a: { key: 'q' } }, 'b', { key: 'q' }), { a: {}, b: { key: 'q' } });
 });
