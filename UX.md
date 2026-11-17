@@ -120,6 +120,10 @@ The "Controls" section lists the engine's buttons, each with its key and its gam
 - **Gamepad: Select + Y.** Select + Start stays the menu.
 - It works in game and in menus, and the pause menu has the entry too: some browsers grant
   fullscreen only to a click or a key, not to a pad press.
+- **Escape keeps opening the pause menu in fullscreen.** Where the browser lets a page lock
+  Escape (Keyboard Lock: Chrome, Edge), it is locked while fullscreen: Escape is the menu, and
+  **holding** Escape leaves fullscreen (the browser says so). Where it does not (Firefox, Safari),
+  Escape leaves fullscreen and that Escape is given back to the page, so the pause menu opens too.
 
 ## Engine apps
 

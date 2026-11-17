@@ -225,6 +225,66 @@ test('createFullscreenToggle: the key and Select + Y toggle the root', async () 
   toggle.destroy();
 });
 
+test('createFullscreenToggle: Escape is locked while fullscreen, and given back when it could not be', async () => {
+  const setup = (keyboard) => {
+    const doc = new EventTarget();
+    doc.fullscreenElement = null;
+    const change = (el) => { doc.fullscreenElement = el; doc.dispatchEvent(new Event('fullscreenchange')); };
+    const root = { ownerDocument: doc, async requestFullscreen() { change(root); } };
+    doc.exitFullscreen = async () => change(null);
+    const target = new EventTarget();
+    const escapes = [];
+    target.addEventListener('keydown', (e) => { if (e.key === 'Escape') escapes.push(e); });
+    const toggle = createFullscreenToggle(root, { target, keyboard, schedule: null, gamepads: () => [] });
+    return { toggle, root, browserExit: () => change(null), escapes };
+  };
+  const tick = () => new Promise((r) => setTimeout(r));
+
+  // Keyboard Lock granted: Escape locked on entering, unlocked on leaving, nothing dispatched.
+  const calls = [];
+  const kb = { async lock(keys) { calls.push(['lock', keys]); }, unlock() { calls.push(['unlock']); } };
+  const a = setup(kb);
+  await a.toggle.toggle();
+  await tick();
+  assert.deepEqual(calls, [['lock', ['Escape']]]);
+  a.browserExit(); // held Escape: the browser leaves
+  assert.deepEqual(calls, [['lock', ['Escape']], ['unlock']]);
+  assert.equal(a.escapes.length, 0);
+  a.toggle.destroy();
+
+  // No Keyboard Lock: a browser exit gives Escape back; our own toggle does not.
+  const b = setup(null);
+  await b.toggle.toggle();
+  b.browserExit();
+  assert.equal(b.escapes.length, 1);
+  await b.toggle.toggle();
+  await b.toggle.toggle(); // our own exit
+  assert.equal(b.escapes.length, 1);
+  b.toggle.destroy();
+
+  // Lock refused: the same as no lock.
+  const c = setup({ lock: async () => { throw new Error('no'); }, unlock() {} });
+  await c.toggle.toggle();
+  await tick();
+  c.browserExit();
+  assert.equal(c.escapes.length, 1);
+  c.toggle.destroy();
+
+  // Opt out.
+  const doc = new EventTarget();
+  doc.fullscreenElement = null;
+  const root = { ownerDocument: doc, async requestFullscreen() { doc.fullscreenElement = root; doc.dispatchEvent(new Event('fullscreenchange')); } };
+  const target = new EventTarget();
+  let heard = 0;
+  target.addEventListener('keydown', () => heard++);
+  const d = createFullscreenToggle(root, { target, keyboard: null, giveBackEscape: false, schedule: null, gamepads: () => [] });
+  await d.toggle();
+  doc.fullscreenElement = null;
+  doc.dispatchEvent(new Event('fullscreenchange'));
+  assert.equal(heard, 0);
+  d.destroy();
+});
+
 test('createWakeLock: held while active and visible, taken again on return', async () => {
   const locks = [];
   const wakeLock = {

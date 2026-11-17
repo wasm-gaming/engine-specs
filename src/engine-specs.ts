@@ -3134,6 +3134,24 @@ export interface FullscreenToggleOptions {
   combo?: readonly number[];
   gamepads?: () => ReadonlyArray<UiGamepadLike | null>;
   schedule?: ((poll: () => void) => unknown) | null;
+  /**
+   * The Keyboard Lock API (`navigator.keyboard`, Chromium). While fullscreen, Escape is locked
+   * so it reaches the page (the pause menu) and the player leaves by holding it. `null` turns it
+   * off. Default: `navigator.keyboard` when there is one.
+   */
+  keyboard?: KeyboardLockLike | null;
+  /**
+   * When fullscreen ends without this toggle asking (the browser took Escape, where Escape
+   * could not be locked), dispatch that Escape `keydown` on {@link target}, so
+   * {@link createInput} hears it: `menu` in game, `back` in a menu. Default `true`.
+   */
+  giveBackEscape?: boolean;
+}
+
+/** The parts of the Keyboard Lock API used (so tests can fake it). */
+export interface KeyboardLockLike {
+  lock(keyCodes?: string[]): Promise<void>;
+  unlock(): void;
 }
 
 export interface FullscreenToggle {
@@ -3163,19 +3181,57 @@ export function createFullscreenToggle(root: Element, options: FullscreenToggleO
     (() => (globalThis.navigator?.getGamepads?.() ?? []) as ReadonlyArray<UiGamepadLike | null>);
   const schedule =
     options.schedule === undefined ? (globalThis.requestAnimationFrame?.bind(globalThis) ?? null) : options.schedule;
+  const keyboard =
+    options.keyboard === undefined
+      ? ((globalThis.navigator as { keyboard?: KeyboardLockLike } | undefined)?.keyboard ?? null)
+      : options.keyboard;
+  const giveBackEscape = options.giveBackEscape ?? true;
   const listeners = new Set<(active: boolean) => void>();
   let destroyed = false;
   let polling = false;
   let held = false;
+  let leaving = false; // this toggle asked to leave
+  let locked = false; // Escape is locked (it reaches the page)
+  let wasActive = false;
 
   const active = (): boolean => doc.fullscreenElement === root;
   const toggle = async (): Promise<void> => {
     try {
-      if (active()) await doc.exitFullscreen();
-      else await root.requestFullscreen();
+      if (active()) {
+        leaving = true;
+        await doc.exitFullscreen();
+      } else await root.requestFullscreen();
     } catch {
       // Refused (no user gesture, or not allowed): nothing changes.
+      leaving = false;
     }
+  };
+  /** The Escape the browser kept, back to the page: what the player pressed. */
+  const escapeEvent = (): Event => {
+    const init = { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true };
+    if (typeof KeyboardEvent === 'function') return new KeyboardEvent('keydown', init);
+    return Object.assign(new Event('keydown', init), { key: 'Escape', code: 'Escape', repeat: false });
+  };
+  const entered = (): void => {
+    if (!keyboard) return;
+    keyboard.lock(['Escape']).then(
+      () => {
+        // Still fullscreen? (it may have ended while the lock was being granted)
+        if (active() && !destroyed) locked = true;
+        else keyboard.unlock();
+      },
+      () => {
+        locked = false; // refused: the browser keeps Escape, it is given back on leaving
+      },
+    );
+  };
+  const left = (): void => {
+    const byUs = leaving;
+    const hadLock = locked;
+    leaving = false;
+    locked = false;
+    if (keyboard && hadLock) keyboard.unlock();
+    if (!byUs && !hadLock && giveBackEscape && !destroyed) target.dispatchEvent(escapeEvent());
   };
   const onKey = (event: Event): void => {
     const key = event as KeyboardEvent;
@@ -3185,7 +3241,11 @@ export function createFullscreenToggle(root: Element, options: FullscreenToggleO
     void toggle();
   };
   const onChange = (): void => {
-    for (const listener of [...listeners]) listener(active());
+    const now = active();
+    if (now && !wasActive) entered();
+    else if (!now && wasActive) left();
+    wasActive = now;
+    for (const listener of [...listeners]) listener(now);
   };
   const poll = (): void => {
     if (destroyed) return;
@@ -3222,6 +3282,8 @@ export function createFullscreenToggle(root: Element, options: FullscreenToggleO
     destroy() {
       destroyed = true;
       listeners.clear();
+      if (locked) keyboard?.unlock();
+      locked = false;
       target.removeEventListener('keydown', onKey, { capture: true });
       target.removeEventListener('gamepadconnected', startPolling);
       doc.removeEventListener('fullscreenchange', onChange);
