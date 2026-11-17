@@ -24,6 +24,8 @@ import {
   fullscreenShortcut,
   isShortcut,
   createFullscreenToggle,
+  menuKeyAliases,
+  menuKeyHint,
   createWakeLock,
   frameStats,
   framesDue,
@@ -223,6 +225,124 @@ test('createFullscreenToggle: the key and Select + Y toggle the root', async () 
   await new Promise((r) => setTimeout(r));
   assert.equal(toggle.active, false);
   toggle.destroy();
+});
+
+test('createFullscreenToggle: Escape is locked while fullscreen, and given back when it could not be', async () => {
+  const setup = (keyboard) => {
+    const doc = new EventTarget();
+    doc.fullscreenElement = null;
+    const change = (el) => { doc.fullscreenElement = el; doc.dispatchEvent(new Event('fullscreenchange')); };
+    const root = { ownerDocument: doc, async requestFullscreen() { change(root); } };
+    doc.exitFullscreen = async () => change(null);
+    const target = new EventTarget();
+    const escapes = [];
+    target.addEventListener('keydown', (e) => { if (e.key === 'Escape') escapes.push(e); });
+    const toggle = createFullscreenToggle(root, { target, keyboard, schedule: null, gamepads: () => [] });
+    return { toggle, root, browserExit: () => change(null), escapes };
+  };
+  const tick = () => new Promise((r) => setTimeout(r));
+
+  // Keyboard Lock granted: Escape locked on entering, unlocked on leaving, nothing dispatched.
+  const calls = [];
+  const kb = { async lock(keys) { calls.push(['lock', keys]); }, unlock() { calls.push(['unlock']); } };
+  const a = setup(kb);
+  await a.toggle.toggle();
+  await tick();
+  assert.deepEqual(calls, [['lock', ['Escape']]]);
+  a.browserExit(); // held Escape: the browser leaves
+  assert.deepEqual(calls, [['lock', ['Escape']], ['unlock']]);
+  assert.equal(a.escapes.length, 0);
+  a.toggle.destroy();
+
+  // No Keyboard Lock: a browser exit gives Escape back; our own toggle does not.
+  const b = setup(null);
+  await b.toggle.toggle();
+  b.browserExit();
+  assert.equal(b.escapes.length, 1);
+  await b.toggle.toggle();
+  await b.toggle.toggle(); // our own exit
+  assert.equal(b.escapes.length, 1);
+  b.toggle.destroy();
+
+  // Lock refused: the same as no lock.
+  const c = setup({ lock: async () => { throw new Error('no'); }, unlock() {} });
+  await c.toggle.toggle();
+  await tick();
+  c.browserExit();
+  assert.equal(c.escapes.length, 1);
+  c.toggle.destroy();
+
+  // Opt out.
+  const doc = new EventTarget();
+  doc.fullscreenElement = null;
+  const root = { ownerDocument: doc, async requestFullscreen() { doc.fullscreenElement = root; doc.dispatchEvent(new Event('fullscreenchange')); } };
+  const target = new EventTarget();
+  let heard = 0;
+  target.addEventListener('keydown', () => heard++);
+  const d = createFullscreenToggle(root, { target, keyboard: null, giveBackEscape: false, schedule: null, gamepads: () => [] });
+  await d.toggle();
+  doc.fullscreenElement = null;
+  doc.dispatchEvent(new Event('fullscreenchange'));
+  assert.equal(heard, 0);
+  d.destroy();
+});
+
+// BlastEm's layout: the game's buttons, their keys, and the pad button each one is.
+const MD = [
+  { id: 'a', code: 'KeyA', button: 0 },
+  { id: 'b', code: 'KeyS', button: 1 },
+  { id: 'c', code: 'KeyD', button: 5 },
+  { id: 'x', code: 'KeyQ', button: 2 },
+  { id: 'y', code: 'KeyW', button: 3 },
+  { id: 'z', code: 'KeyE', button: 4 },
+  { id: 'start', code: 'Enter', button: 9 },
+  { id: 'up', code: 'ArrowUp', button: 12 },
+];
+
+test('menuKeyAliases: the keys of the pad buttons the menus use, minus the menus\' own keys', () => {
+  assert.deepEqual(menuKeyAliases(MD), { KeyA: 'accept', KeyS: 'back', KeyD: 'next', KeyW: 'more' });
+  assert.deepEqual(menuKeyAliases([{ code: 'KeyJ', button: 0 }, { code: 'KeyK' }, { button: 1 }]), { KeyJ: 'accept' });
+});
+
+test('menuKeyHint: the key shown next to a pad button', () => {
+  assert.equal(menuKeyHint(MD, 0), 'A');
+  assert.equal(menuKeyHint(MD, 1), 'S');
+  assert.equal(menuKeyHint(MD, 2), ''); // Q is the menus' prev
+  assert.equal(menuKeyHint(MD, 9), ''); // Enter is the menus' accept
+});
+
+test('createInput: key aliases act in menus, not in game, not while muted or typing', () => {
+  const target = new EventTarget();
+  const input = createInput({ target, schedule: null, gamepads: () => [] });
+  const heard = [];
+  input.on((action) => heard.push(action));
+  const press = (code, { field = false } = {}) => {
+    const event = Object.assign(new Event('keydown', { cancelable: true }), { key: code.replace(/^Key/, '').toLowerCase(), code, repeat: false });
+    // Typing in a field: the event's target is the field (read-only on an Event, so shadowed).
+    if (field) Object.defineProperty(event, 'target', { value: { tagName: 'INPUT' } });
+    target.dispatchEvent(event);
+    return event;
+  };
+  press('KeyS');
+  assert.deepEqual(heard, []);
+  input.setKeyAliases(menuKeyAliases(MD));
+  const ev = press('KeyS');
+  assert.deepEqual(heard, ['back']);
+  assert.equal(ev.defaultPrevented, true);
+  press('KeyA');
+  assert.deepEqual(heard, ['back', 'accept']);
+  input.suspend();
+  press('KeyA');
+  input.resume();
+  const unmute = input.mute();
+  press('KeyA');
+  unmute();
+  press('KeyA', { field: true });
+  assert.deepEqual(heard, ['back', 'accept']);
+  input.setKeyAliases({});
+  press('KeyA');
+  assert.deepEqual(heard, ['back', 'accept']);
+  input.destroy();
 });
 
 test('createWakeLock: held while active and visible, taken again on return', async () => {

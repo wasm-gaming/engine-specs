@@ -19,6 +19,11 @@ Menus react to actions, never to raw keys or buttons.
 | `menu` — pause / main menu | Start (9) in menus; Select + Start always | F1; Escape in game |
 | `prev` / `next` — tabs, pages | LB (4) / RB (5) | Q / E |
 
+**The keys bound to the pad's buttons work too.** An engine app hands the launcher's input the
+keys of its controls (`menuKeyAliases()` → `input.setKeyAliases()`): the key bound to the game's A
+accepts like the pad's A, the one bound to B goes back, and so on. A key the table above already
+uses keeps its meaning. Hints show the pad button with its key next to it (`menuKeyHint()`).
+
 Directions repeat while held: first after **380 ms**, then every **110 ms**. Buttons never repeat.
 Select + Start pressed together is `menu`, and then neither fires on its own.
 
@@ -120,6 +125,10 @@ The "Controls" section lists the engine's buttons, each with its key and its gam
 - **Gamepad: Select + Y.** Select + Start stays the menu.
 - It works in game and in menus, and the pause menu has the entry too: some browsers grant
   fullscreen only to a click or a key, not to a pad press.
+- **Escape keeps opening the pause menu in fullscreen.** Where the browser lets a page lock
+  Escape (Keyboard Lock: Chrome, Edge), it is locked while fullscreen: Escape is the menu, and
+  **holding** Escape leaves fullscreen (the browser says so). Where it does not (Firefox, Safari),
+  Escape leaves fullscreen and that Escape is given back to the page, so the pause menu opens too.
 
 ## Engine apps
 
