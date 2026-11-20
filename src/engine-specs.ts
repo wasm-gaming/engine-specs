@@ -916,6 +916,9 @@ export function createInput(options: UiInputOptions = {}): UiInput {
   const held = new Map<UiAction, { since: number; last: number }>();
   // Slots (positions in getGamepads()) whose Y was pressed as part of Select + Y.
   const comboY = new Set<number>();
+  // Slots holding Select + Start, last poll: the combo fires on its own edge, so it works
+  // whichever of the two buttons goes down first.
+  const comboMenu = new Set<number>();
 
   // A snapshot: a listener that subscribes another one (a screen opening the next)
   // must not hand it the same action — a Set also visits entries added while it is
@@ -977,7 +980,12 @@ export function createInput(options: UiInputOptions = {}): UiInput {
     if (destroyed) return;
     const t = now();
     const active = new Set<UiAction>();
+    let comboEdge = false;
     gamepads().forEach((pad, slot) => {
+      const combo = pad?.buttons[8]?.pressed === true && pad.buttons[9]?.pressed === true;
+      if (combo && !comboMenu.has(slot)) comboEdge = true;
+      if (combo) comboMenu.add(slot);
+      else comboMenu.delete(slot);
       if (pad) for (const action of pressed(pad, slot)) active.add(action);
     });
 
@@ -989,6 +997,11 @@ export function createInput(options: UiInputOptions = {}): UiInput {
         const combo = action === 'menu' && gamepads().some((p) => p?.buttons[8]?.pressed && p.buttons[9]?.pressed);
         if (muted > 0) continue;
         if (!suspended || combo) fire(action, { source: 'gamepad', repeat: false });
+      } else if (action === 'menu' && comboEdge && suspended && muted === 0) {
+        // Start first, then Select: plain Start was already held as `menu` but, in game,
+        // not delivered (it is the game's). The combo arriving is the press that counts.
+        // Resumed, plain Start has already delivered `menu`: nothing more.
+        fire(action, { source: 'gamepad', repeat: false });
       } else if (
         DIRECTIONS.has(action) &&
         t - state.since >= UI_REPEAT.delay &&
@@ -1065,6 +1078,7 @@ export function createInput(options: UiInputOptions = {}): UiInput {
       listeners.clear();
       suspendListeners.clear();
       held.clear();
+      comboMenu.clear();
       target.removeEventListener('keydown', onKey, { capture });
       target.removeEventListener('gamepadconnected', startPolling);
     },
