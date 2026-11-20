@@ -109,6 +109,44 @@ test('Select + Start is menu, and neither fires alone meanwhile', () => {
   assert.deepEqual(seen, ['menu:gamepad', 'menu:gamepad']);
 });
 
+test('in game, Select + Start opens the menu whichever goes down first', () => {
+  for (const order of [[8, 9], [9, 8]]) {
+    const { input, seen, state, tick } = setup();
+    input.suspend();
+    state.pads = [pad([order[0]])];
+    tick(0);
+    state.pads = [pad(order)];
+    tick(16);
+    tick(16); // held: no repeat
+    state.pads = [pad([9])]; // Select let go, Start still down: nothing
+    tick(16);
+    state.pads = [pad([])];
+    tick(16);
+    assert.deepEqual(seen, ['menu:gamepad'], `order ${order}`);
+  }
+});
+
+test('in a menu, Start then Select is one menu, not two', () => {
+  const { seen, state, tick } = setup();
+  state.pads = [pad([9])];
+  tick(0);
+  state.pads = [pad([9, 8])];
+  tick(16);
+  state.pads = [pad([])];
+  tick(16);
+  assert.deepEqual(seen, ['menu:gamepad']);
+});
+
+test('the combo on a second pad, while the first holds Start', () => {
+  const { input, seen, state, tick } = setup();
+  input.suspend();
+  state.pads = [pad([9]), pad([])];
+  tick(0);
+  state.pads = [pad([9]), pad([8, 9])];
+  tick(16);
+  assert.deepEqual(seen, ['menu:gamepad']);
+});
+
 const box = (left, top, width = 100, height = 100) => ({
   name: `${left},${top}`,
   getBoundingClientRect: () => ({ left, top, width, height }),
